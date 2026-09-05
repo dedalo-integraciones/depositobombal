@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Función helper para verificar si el usuario es admin o superadmin
+    function esAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in ['ADMIN', 'SADMIN'];
+    }
+
+    // Rubros: lectura pública solo si activo == true; escritura solo admins
+    match /rubros/{id} {
+      allow read: if resource.data.activo == true || esAdmin();
+      allow write: if esAdmin();
+    }
+
+    // Categorías: lectura pública solo si activo == true; escritura solo admins
+    match /categorias/{id} {
+      allow read: if resource.data.activo == true || esAdmin();
+      allow write: if esAdmin();
+    }
+
+    // Productos: lectura pública solo si activo == true; escritura solo admins
+    match /productos/{id} {
+      allow read: if resource.data.activo == true || esAdmin();
+      allow write: if esAdmin();
+    }
+
+    // Usuarios: cada uno lee su doc; solo admins escriben
+    match /usuarios/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if esAdmin();
+    }
+  }
+}
