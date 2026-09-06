@@ -8,7 +8,7 @@ import {
   query,
   where,
 } from 'firebase/firestore'
-import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app'
+import { initializeApp, deleteApp } from 'firebase/app'
 import {
   getAuth,
   createUserWithEmailAndPassword,
@@ -29,7 +29,7 @@ const firebaseConfig = {
 }
 
 /**
- * Obtener todos los usuarios de la colección 'usuarios' (y 'users' si aplica)
+ * Obtener todos los usuarios de la colección 'usuarios' (colección única del sistema)
  */
 export async function getUsuarios() {
   if (!isFirebaseConfigured || !db) {
@@ -45,61 +45,48 @@ export async function getUsuarios() {
         ...docSnap.data(),
       })
     })
-
-    // Si la colección 'usuarios' estaba vacía, intentar con 'users'
-    if (usuarios.length === 0) {
-      try {
-        const usersSnap = await getDocs(collection(db, 'users'))
-        usersSnap.forEach((docSnap) => {
-          usuarios.push({
-            id: docSnap.id,
-            uid: docSnap.id,
-            ...docSnap.data(),
-          })
-        })
-      } catch (e) {
-        // Ignorar
-      }
-    }
-
     return usuarios
   } catch (error) {
-    console.warn('[usuariosService] Advertencia al obtener lista de usuarios de Firestore:', error)
-    // Fallback: retornar al menos el usuario autenticado actual si no se puede listar la colección completa por reglas
-    try {
-      const auth = getAuth(mainApp)
-      if (auth.currentUser) {
-        const currentProfile = await getUsuarioByUid(auth.currentUser.uid)
-        if (currentProfile) {
-          return [currentProfile]
-        }
-      }
-    } catch (e) {
-      // Ignorar
-    }
-    return []
+    console.error('[usuariosService] Error al obtener lista de usuarios de Firestore:', error)
+    throw error
   }
 }
 
 /**
- * Obtener perfil de un usuario específico por su UID
+ * Obtener perfil de un usuario por su UID (o fallback por email) en la colección 'usuarios'
  */
-export async function getUsuarioByUid(uid) {
-  if (!isFirebaseConfigured || !db || !uid) {
+export async function getUsuarioByUid(uid, email = null) {
+  if (!isFirebaseConfigured || !db || (!uid && !email)) {
     return null
   }
   try {
-    const docRef = doc(db, 'usuarios', uid)
-    const docSnap = await getDoc(docRef)
-    if (docSnap.exists()) {
-      return { id: docSnap.id, uid: docSnap.id, ...docSnap.data() }
+    // 1. Buscar por UID (ID estándar de Auth)
+    if (uid) {
+      const docRef = doc(db, 'usuarios', uid)
+      const docSnap = await getDoc(docRef)
+      if (docSnap.exists()) {
+        return { id: docSnap.id, uid: docSnap.id, ...docSnap.data() }
+      }
     }
-    // Probar colección alternativa 'users'
-    const userDocRef = doc(db, 'users', uid)
-    const userDocSnap = await getDoc(userDocRef)
-    if (userDocSnap.exists()) {
-      return { id: userDocSnap.id, uid: userDocSnap.id, ...userDocSnap.data() }
+
+    // 2. Fallback: buscar por ID = email si se guardó con el email como ID
+    const targetEmail = email ? email.trim().toLowerCase() : (uid?.includes('@') ? uid.trim().toLowerCase() : null)
+    if (targetEmail) {
+      const docRefEmail = doc(db, 'usuarios', targetEmail)
+      const docSnapEmail = await getDoc(docRefEmail)
+      if (docSnapEmail.exists()) {
+        return { id: docSnapEmail.id, uid: docSnapEmail.id, ...docSnapEmail.data() }
+      }
+
+      // 3. Fallback: consulta por campo 'email'
+      const q = query(collection(db, 'usuarios'), where('email', '==', targetEmail))
+      const querySnap = await getDocs(q)
+      if (!querySnap.empty) {
+        const firstDoc = querySnap.docs[0]
+        return { id: firstDoc.id, uid: firstDoc.id, ...firstDoc.data() }
+      }
     }
+
     return null
   } catch (error) {
     console.warn(`[usuariosService] Advertencia al obtener usuario ${uid}:`, error)
@@ -114,13 +101,9 @@ export async function checkEmailExists(email) {
   if (!isFirebaseConfigured || !db || !email) return false
   const cleanEmail = email.trim().toLowerCase()
   try {
-    const q1 = query(collection(db, 'usuarios'), where('email', '==', cleanEmail))
-    const snap1 = await getDocs(q1)
-    if (!snap1.empty) return true
-
-    const q2 = query(collection(db, 'users'), where('email', '==', cleanEmail))
-    const snap2 = await getDocs(q2)
-    return !snap2.empty
+    const q = query(collection(db, 'usuarios'), where('email', '==', cleanEmail))
+    const snap = await getDocs(q)
+    return !snap.empty
   } catch (err) {
     console.warn('[usuariosService] Advertencia al verificar existencia de email:', err)
     return false
@@ -128,7 +111,7 @@ export async function checkEmailExists(email) {
 }
 
 /**
- * Cambiar el estado de un usuario (activo <-> deshabilitado)
+ * Cambiar el estado de un usuario (activo <-> deshabilitado) en la colección 'usuarios'
  */
 export async function toggleUsuarioStatus(uid, currentStatus) {
   if (!isFirebaseConfigured || !db || !uid) {
@@ -140,14 +123,6 @@ export async function toggleUsuarioStatus(uid, currentStatus) {
   try {
     const userRef = doc(db, 'usuarios', uid)
     await setDoc(userRef, { status: newStatus, updatedAt }, { merge: true })
-
-    try {
-      const usersRef = doc(db, 'users', uid)
-      await setDoc(usersRef, { status: newStatus, updatedAt }, { merge: true })
-    } catch (e) {
-      // Ignorar si no existe la colección espejo
-    }
-
     return newStatus
   } catch (error) {
     console.error(`[usuariosService] Error al actualizar estado de ${uid}:`, error)
@@ -168,7 +143,8 @@ export function generateRandomPassword() {
 }
 
 /**
- * Dar de alta un usuario utilizando el patrón de instancia secundaria de Firebase Auth
+ * Dar de alta un usuario utilizando el patrón de instancia secundaria de Firebase Auth.
+ * Escribe directamente en la colección existente 'usuarios' con el UID como ID de documento.
  */
 export async function crearUsuarioSecundario({ email, rol }) {
   if (!isFirebaseConfigured) {
@@ -186,12 +162,13 @@ export async function crearUsuarioSecundario({ email, rol }) {
     secondaryApp = initializeApp(firebaseConfig, appName)
     const secondaryAuth = getAuth(secondaryApp)
 
-    // 1. Crear usuario en Auth con la contraseña temporal
+    // 1. Crear usuario en Firebase Auth con la contraseña temporal
     const userCredential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, tempPassword)
     const newUid = userCredential.user.uid
 
-    // 2. Crear documento en la colección 'usuarios' (y 'users')
+    // 2. Crear documento en la colección única 'usuarios' con ID = newUid
     const userDocData = {
+      nombre: cleanEmail.split('@')[0],
       email: cleanEmail,
       rol: rol || 'admin',
       status: 'activo',
@@ -201,11 +178,6 @@ export async function crearUsuarioSecundario({ email, rol }) {
     }
 
     await setDoc(doc(db, 'usuarios', newUid), userDocData)
-    try {
-      await setDoc(doc(db, 'users', newUid), userDocData)
-    } catch (err) {
-      // Espejo
-    }
 
     // 3. Enviar correo de restablecimiento de contraseña vía Firebase Auth
     try {
@@ -238,7 +210,9 @@ export async function crearUsuarioSecundario({ email, rol }) {
 }
 
 /**
- * Actualizar contraseña obligatoria en el primer ingreso
+ * Actualizar contraseña obligatoria en el primer ingreso.
+ * Actualiza la clave en Firebase Auth y cambia mustChangePassword = false en la colección 'usuarios'
+ * para el documento del usuario logueado.
  */
 export async function cambiarPasswordPrimerIngreso(newPassword) {
   const auth = getAuth(mainApp)
@@ -246,27 +220,40 @@ export async function cambiarPasswordPrimerIngreso(newPassword) {
     throw new Error('No hay una sesión activa para cambiar la contraseña.')
   }
 
+  const currentUser = auth.currentUser
+  const uid = currentUser.uid
+  const cleanEmail = currentUser.email?.trim().toLowerCase()
+
   // 1. Actualizar contraseña en Firebase Auth
-  await authUpdatePassword(auth.currentUser, newPassword)
+  await authUpdatePassword(currentUser, newPassword)
 
-  // 2. Actualizar mustChangePassword = false en Firestore
-  const uid = auth.currentUser.uid
+  // 2. Actualizar mustChangePassword = false en Firestore en la colección 'usuarios'
   const updatedAt = new Date().toISOString()
+  const updateData = {
+    mustChangePassword: false,
+    updatedAt,
+  }
 
-  try {
-    await setDoc(doc(db, 'usuarios', uid), { mustChangePassword: false, updatedAt }, { merge: true })
+  // Actualizar por UID
+  const userRefByUid = doc(db, 'usuarios', uid)
+  await setDoc(userRefByUid, updateData, { merge: true })
+
+  // Si existe un documento histórico cuyo ID es el email, actualizarlo también
+  if (cleanEmail && cleanEmail !== uid) {
     try {
-      await setDoc(doc(db, 'users', uid), { mustChangePassword: false, updatedAt }, { merge: true })
+      const userRefByEmail = doc(db, 'usuarios', cleanEmail)
+      const snapEmail = await getDoc(userRefByEmail)
+      if (snapEmail.exists()) {
+        await setDoc(userRefByEmail, updateData, { merge: true })
+      }
     } catch (e) {
-      // Ignorar
+      // Ignorar si no existe
     }
-  } catch (err) {
-    console.error('[usuariosService] Error al actualizar flag mustChangePassword en Firestore:', err)
   }
 }
 
 /**
- * Seed o asignación de rol 'superadmin' / 'SADMIN' a un usuario por su email o UID
+ * Seed o asignación de rol 'superadmin' / 'SADMIN' a un usuario por su email o UID en la colección 'usuarios'
  */
 export async function seedSuperAdmin(emailOrUid, email = '') {
   if (!isFirebaseConfigured || !db) return
@@ -274,7 +261,6 @@ export async function seedSuperAdmin(emailOrUid, email = '') {
   let uid = emailOrUid
   let targetEmail = email || emailOrUid
 
-  // Si se pasó email, intentar buscar el UID si no es un UID de Firebase (los UIDs suelen tener 28 caracteres)
   if (targetEmail.includes('@') && !uid.match(/^[a-zA-Z0-9]{28}$/)) {
     try {
       const q = query(collection(db, 'usuarios'), where('email', '==', targetEmail.trim().toLowerCase()))
@@ -283,11 +269,12 @@ export async function seedSuperAdmin(emailOrUid, email = '') {
         uid = snap.docs[0].id
       }
     } catch (e) {
-      // Ignorar error de búsqueda en seed
+      // Ignorar
     }
   }
 
   const userDocData = {
+    nombre: targetEmail.split('@')[0],
     email: targetEmail.trim().toLowerCase(),
     rol: 'SADMIN',
     status: 'activo',
@@ -298,9 +285,6 @@ export async function seedSuperAdmin(emailOrUid, email = '') {
   if (uid) {
     try {
       await setDoc(doc(db, 'usuarios', uid), userDocData, { merge: true })
-      try {
-        await setDoc(doc(db, 'users', uid), userDocData, { merge: true })
-      } catch (e) {}
       console.info(`[usuariosService] Asignado rol SADMIN a usuario ${targetEmail} (UID: ${uid})`)
     } catch (err) {
       console.warn(`[usuariosService] No se pudo guardar el doc SADMIN en Firestore:`, err)

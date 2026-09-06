@@ -26,12 +26,16 @@ export function AuthProvider({ children }) {
     }
 
     try {
-      let profile = await getUsuarioByUid(currentUser.uid)
+      let profile = await getUsuarioByUid(currentUser.uid, currentUser.email)
 
-      // Si no existe perfil en Firestore para el usuario autenticado, crearlo automáticamente como SADMIN
-      if (!profile) {
+      // Si el usuario logueado es el superadmin conocido (dueño) y no tiene perfil aún, sembrarlo
+      const isKnownSuperadmin =
+        currentUser.email?.toLowerCase() === 'depositobombal.sa@hotmail.com' ||
+        currentUser.email?.toLowerCase() === 'nelsonhammerle@gmail.com'
+
+      if (isKnownSuperadmin && (!profile || (profile.rol !== 'SADMIN' && profile.rol !== 'superadmin'))) {
         await seedSuperAdmin(currentUser.uid, currentUser.email)
-        profile = await getUsuarioByUid(currentUser.uid)
+        profile = await getUsuarioByUid(currentUser.uid, currentUser.email)
       }
 
       // Si el perfil está deshabilitado, bloquear y cerrar sesión
@@ -125,20 +129,23 @@ export function AuthProvider({ children }) {
 
   const refreshUserProfile = async () => {
     if (user) {
-      await fetchProfile(user)
+      return await fetchProfile(user)
     }
+    return null
   }
 
   const clearMustChangePasswordFlag = () => {
-    if (userProfile) {
-      setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false } : null))
-    }
+    setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false } : null))
   }
 
   // Normalización de rol e identificadores
   const rawRole = (userProfile?.rol || '').toLowerCase()
-  const isSuperAdmin = !userProfile || rawRole === 'superadmin' || rawRole === 'sadmin'
-  const isAdmin = isSuperAdmin || rawRole === 'admin'
+  const isSuperAdminEmail =
+    user?.email?.toLowerCase() === 'depositobombal.sa@hotmail.com' ||
+    user?.email?.toLowerCase() === 'nelsonhammerle@gmail.com'
+
+  const isSuperAdmin = rawRole === 'superadmin' || rawRole === 'sadmin' || isSuperAdminEmail
+  const isAdmin = isSuperAdmin || rawRole === 'admin' || rawRole === 'vendedor'
   const mustChangePasswordRequired = Boolean(userProfile?.mustChangePassword)
 
   return (
@@ -146,7 +153,7 @@ export function AuthProvider({ children }) {
       value={{
         user,
         userProfile,
-        userRole: userProfile?.rol || 'SADMIN',
+        userRole: userProfile?.rol || (isSuperAdmin ? 'SADMIN' : 'ADMIN'),
         isSuperAdmin,
         isAdmin,
         mustChangePasswordRequired,

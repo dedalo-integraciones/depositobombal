@@ -4,7 +4,7 @@ import { cambiarPasswordPrimerIngreso } from '../../services/usuariosService.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 
 export default function MustChangePasswordModal() {
-  const { clearMustChangePasswordFlag, user } = useAuth()
+  const { clearMustChangePasswordFlag, refreshUserProfile, user } = useAuth()
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -28,10 +28,9 @@ export default function MustChangePasswordModal() {
     setLoading(true)
     try {
       await cambiarPasswordPrimerIngreso(newPassword)
+      await refreshUserProfile()
+      clearMustChangePasswordFlag()
       setSuccess(true)
-      setTimeout(() => {
-        clearMustChangePasswordFlag()
-      }, 1200)
     } catch (err) {
       console.error('[MustChangePasswordModal] Error:', err)
       setError(

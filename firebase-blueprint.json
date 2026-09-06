@@ -42,9 +42,10 @@
     },
     "Usuario": {
       "title": "Usuario",
-      "description": "Usuario del sistema con rol y estado",
+      "description": "Usuario del sistema con rol y estado en la colección usuarios",
       "type": "object",
       "properties": {
+        "nombre": { "type": "string" },
         "email": { "type": "string", "format": "email" },
         "rol": { "type": "string", "enum": ["ADMIN", "SADMIN", "admin", "superadmin", "vendedor"] },
         "status": { "type": "string", "enum": ["activo", "deshabilitado"] },
@@ -70,11 +71,7 @@
     },
     "/usuarios/{uid}": {
       "schema": "Usuario",
-      "description": "Colección de usuarios"
-    },
-    "/users/{uid}": {
-      "schema": "Usuario",
-      "description": "Colección de users"
+      "description": "Colección única de usuarios"
     }
   }
 }
