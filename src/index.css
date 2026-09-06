@@ -90,6 +90,84 @@ body {
 }
 
 /* ============================================================
+   ANIMACIONES HERO (Fade-up escalonado suave)
+   ============================================================ */
+:root {
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes heroFadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-fade-item {
+  opacity: 0;
+  animation: heroFadeUp 1000ms var(--ease-smooth) forwards;
+  will-change: transform, opacity;
+}
+
+.hero-delay-1 { animation-delay: 180ms; }
+.hero-delay-2 { animation-delay: 360ms; }
+.hero-delay-3 { animation-delay: 540ms; }
+.hero-delay-4 { animation-delay: 720ms; }
+.hero-delay-5 { animation-delay: 900ms; }
+
+/* Ajustes específicos para móviles: movimiento ultra suave y fluido */
+@media (max-width: 640px) {
+  @keyframes heroFadeUp {
+    0% {
+      opacity: 0;
+      transform: translateY(32px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .hero-fade-item {
+    animation-duration: 1050ms;
+  }
+
+  .hero-delay-1 { animation-delay: 200ms; }
+  .hero-delay-2 { animation-delay: 400ms; }
+  .hero-delay-3 { animation-delay: 600ms; }
+  .hero-delay-4 { animation-delay: 800ms; }
+  .hero-delay-5 { animation-delay: 1000ms; }
+}
+
+/* ============================================================
+   ANIMACIÓN FADE LEFT PARA TÍTULOS DE SECCIONES (Cruzando la pantalla)
+   ============================================================ */
+@keyframes fadeLeftFull {
+  0% {
+    opacity: 0;
+    transform: translateX(100vw);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.fade-left-title {
+  display: inline-block;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.fade-left-title.in-view {
+  animation: fadeLeftFull 1.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ============================================================
    SISTEMA DE BOTONES CON JERARQUÍA DE 3 NIVELES
    Reglas obligatorias:
    - border-radius: 8px (var(--radius))

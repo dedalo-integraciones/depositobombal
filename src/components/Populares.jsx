@@ -8,6 +8,7 @@ import {
   MessageCircle,
   Plus,
   Minus,
+  ClipboardPlus,
 } from 'lucide-react'
 import { getCatalogoCompleto } from '../services/catalogoService.js'
 import { usePresupuesto } from '../context/PresupuestoContext.jsx'
@@ -60,6 +61,25 @@ export default function Populares() {
   }
 
   const carouselRef = useRef(null)
+  const titleRef = useRef(null)
+  const [titleInView, setTitleInView] = useState(false)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setTitleInView(true)
+        }
+      },
+      { threshold: 0.15 }
+    )
+
+    if (titleRef.current) {
+      observer.observe(titleRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     let isMounted = true
@@ -146,7 +166,12 @@ export default function Populares() {
             <Flame className="w-3.5 h-3.5" />
             <span>Tendencias de demanda</span>
           </div>
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-[var(--text)] tracking-tight">
+          <h2
+            ref={titleRef}
+            className={`text-2xl sm:text-3xl md:text-4xl font-extrabold text-[var(--text)] tracking-tight fade-left-title ${
+              titleInView ? 'in-view' : ''
+            }`}
+          >
             Productos <span className="text-[var(--primary)]">Populares</span>
           </h2>
           <p className="text-sm text-[var(--muted)] mt-1 max-w-xl">
@@ -274,17 +299,16 @@ export default function Populares() {
                       onClick={(e) => e.stopPropagation()}
                       className="flex items-center gap-2 min-w-0"
                     >
-                      <label className={`btn-secondary flex-1 min-w-0 !px-2.5 sm:!px-3.5 !py-2 cursor-pointer select-none text-xs sm:text-sm transition-all duration-200 ${
-                        isInCart(prod.id) ? '!bg-[#FEF2F2] ring-1 ring-[var(--primary)]/30 font-bold' : ''
-                      }`}>
-                        <input
-                          type="checkbox"
-                          checked={isInCart(prod.id)}
-                          onChange={() => handleToggleCart(prod)}
-                          className="w-4 h-4 rounded border-gray-300 text-[var(--primary)] focus:ring-[var(--primary)] accent-[var(--primary)] cursor-pointer shrink-0"
-                        />
+                      <button
+                        type="button"
+                        onClick={() => handleToggleCart(prod)}
+                        className={`btn-secondary flex-1 min-w-0 !px-2.5 sm:!px-3.5 !py-2 cursor-pointer select-none text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                          isInCart(prod.id) ? '!bg-[#FEF2F2] ring-1 ring-[var(--primary)]/30 font-bold' : ''
+                        }`}
+                      >
+                        <ClipboardPlus className="w-4 h-4 shrink-0" />
                         <span className="truncate">Presupuestar</span>
-                      </label>
+                      </button>
 
                       {isInCart(prod.id) && (
                         <div className="flex items-center h-[38px] border border-gray-300 rounded-lg bg-white overflow-hidden shadow-2xs shrink-0 divide-x divide-gray-200 animate-qty-appear">

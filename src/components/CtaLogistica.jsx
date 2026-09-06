@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Truck,
   Send,
@@ -38,6 +38,58 @@ export default function CtaLogistica() {
   const [submitStatus, setSubmitStatus] = useState(null) // 'success' | 'error' | null
   const [statusMessage, setStatusMessage] = useState('')
   const [rateLimitSeconds, setRateLimitSeconds] = useState(0)
+
+  const sectionRef = useRef(null)
+  const [scrollY, setScrollY] = useState(0)
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true)
+        }
+      },
+      { threshold: 0.12 }
+    )
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    let ticking = false
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          setScrollY(window.scrollY)
+          ticking = false
+        })
+        ticking = true
+      }
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    handleScroll()
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Cálculo de desplazamiento y opacidad reactivos al scroll UP / DOWN
+  let translateY = 0
+  let scrollOpacity = 1
+  if (sectionRef.current) {
+    const rect = sectionRef.current.getBoundingClientRect()
+    const viewHeight = typeof window !== 'undefined' ? window.innerHeight : 800
+    const centerOffset = (viewHeight / 2) - (rect.top + rect.height / 2)
+    if (centerOffset > 0) {
+      const ratio = Math.min(centerOffset / 450, 1)
+      translateY = ratio * -28
+      scrollOpacity = Math.max(1 - ratio * 0.85, 0.15)
+    }
+  }
 
   // Cargar rubros para el selector dinámico
   useEffect(() => {
@@ -259,34 +311,61 @@ export default function CtaLogistica() {
       {/* Sección Visual Parallax: Únicamente mensaje de propuesta de valor y botón CTA */}
       <section
         id="cta-1"
+        ref={sectionRef}
         className="relative w-full py-20 sm:py-28 bg-fixed bg-center bg-cover overflow-hidden"
         style={{
-          backgroundImage: `linear-gradient(rgba(17, 24, 39, 0.84), rgba(17, 24, 39, 0.88)), url('https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=2000&q=80')`,
+          backgroundImage: `linear-gradient(rgba(17, 24, 39, 0.84), rgba(17, 24, 39, 0.88)), url('/logistica.webp')`,
         }}
       >
         <div className="w-full px-4 sm:px-8 md:px-12 lg:px-16 xl:px-20 relative z-10">
-          <div className="max-w-4xl mx-auto text-center text-white space-y-7">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-200 text-xs font-bold tracking-wide uppercase shadow-xs">
+          <div
+            className="max-w-4xl mx-auto text-center text-white space-y-7 transition-transform duration-150 ease-out"
+            style={{
+              transform: `translate3d(0, ${translateY}px, 0)`,
+              opacity: scrollOpacity,
+            }}
+          >
+            {/* Badge - Escalonado 1 */}
+            <div
+              className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-red-600/30 border border-red-500/40 text-red-200 text-xs font-bold tracking-wide uppercase shadow-xs transition-all duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+              style={{ transitionDelay: '150ms' }}
+            >
               <Truck className="w-3.5 h-3.5 text-red-400" />
               <span>Logística & Distribución Regional</span>
             </div>
 
-            {/* Título */}
-            <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight">
+            {/* Título - Escalonado 2 */}
+            <h2
+              className={`text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight leading-tight transition-all duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+              style={{ transitionDelay: '300ms' }}
+            >
               Alianza Estratégica con Productores y Fabricantes
             </h2>
 
-            {/* Mensaje de propuesta de valor */}
-            <p className="text-base sm:text-lg lg:text-xl text-gray-200 leading-relaxed max-w-3xl mx-auto font-normal">
+            {/* Mensaje de propuesta de valor - Escalonado 3 */}
+            <p
+              className={`text-base sm:text-lg lg:text-xl text-gray-200 leading-relaxed max-w-3xl mx-auto font-normal transition-all duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+              style={{ transitionDelay: '450ms' }}
+            >
               Invitamos a <strong>productores y fabricantes</strong> a canalizar su distribución
               regional a través de la infraestructura logística y flota propia de{' '}
               <strong className="text-white">Depósito Bombal</strong>. Potenciá el alcance de tus
               productos en Mendoza y la región con un socio logístico de confianza.
             </p>
 
-            {/* 3 Pilares destacados */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 pb-2 text-left max-w-3xl mx-auto">
+            {/* 3 Pilares destacados - Escalonado 4 */}
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 pb-2 text-left max-w-3xl mx-auto transition-all duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+              style={{ transitionDelay: '600ms' }}
+            >
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 backdrop-blur-xs">
                 <div className="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center mb-2.5">
                   <Truck className="w-4 h-4" />
@@ -318,8 +397,13 @@ export default function CtaLogistica() {
               </div>
             </div>
 
-            {/* Botón CTA para abrir el modal - Primario (acción principal) */}
-            <div className="pt-3">
+            {/* Botón CTA para abrir el modal - Escalonado 5 */}
+            <div
+              className={`pt-3 transition-all duration-1000 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
+              }`}
+              style={{ transitionDelay: '750ms' }}
+            >
               <button
                 type="button"
                 onClick={() => setIsModalOpen(true)}
