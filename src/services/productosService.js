@@ -10,6 +10,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { db, isFirebaseConfigured } from '../lib/firebase.js'
+import { bumpCatalogoVersion } from './versionService.js'
 
 const COLLECTION_NAME = 'productos'
 
@@ -42,7 +43,7 @@ export async function getProductosActivos() {
     )
   } catch (error) {
     console.error('[productosService] Error al obtener productos activos:', error)
-    return []
+    throw error
   }
 }
 
@@ -164,12 +165,14 @@ export async function createProducto(data, userId = '') {
     activo: Boolean(data.activo !== undefined ? data.activo : true),
     imagen: img,
     imagenUrl: img,
+    cloudinaryPublicId: (data.cloudinaryPublicId || data.public_id || '').trim(),
     fechaAlta: serverTimestamp(),
     fechaActualizacion: serverTimestamp(),
     idUsuarioActualizacion: userId || '',
   }
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), payload)
+  bumpCatalogoVersion()
   return docRef.id
 }
 
@@ -204,9 +207,13 @@ export async function updateProducto(id, data, userId = '') {
     payload.imagen = img
     payload.imagenUrl = img
   }
+  if (data.cloudinaryPublicId !== undefined || data.public_id !== undefined) {
+    payload.cloudinaryPublicId = (data.cloudinaryPublicId || data.public_id || '').trim()
+  }
 
   const docRef = doc(db, COLLECTION_NAME, id)
   await updateDoc(docRef, payload)
+  bumpCatalogoVersion()
   return id
 }
 

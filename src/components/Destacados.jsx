@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { getCatalogoCompleto } from '../services/catalogoService.js'
 import { usePresupuesto } from '../context/PresupuestoContext.jsx'
+import { getImageUrl } from '../utils/cloudinary.js'
 import ModalProducto from './ModalProducto.jsx'
 
 /**
@@ -59,9 +60,35 @@ export default function Destacados() {
     }
   }
 
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [containerWidth, setContainerWidth] = useState(0)
+  const [isMobile, setIsMobile] = useState(false)
+  const [isTransitioning, setIsTransitioning] = useState(true)
+
   const carouselRef = useRef(null)
   const titleRef = useRef(null)
   const [titleInView, setTitleInView] = useState(false)
+
+  // Medir ancho del contenedor para el desplazamiento y centrado
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 640
+      setIsMobile(mobile)
+      if (carouselRef.current) {
+        setContainerWidth(carouselRef.current.offsetWidth || 0)
+      }
+    }
+
+    handleResize()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  useEffect(() => {
+    if (carouselRef.current) {
+      setContainerWidth(carouselRef.current.offsetWidth || 0)
+    }
+  }, [productos.length, loading])
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -107,6 +134,10 @@ export default function Destacados() {
 
         const destacados = (todosProductos || []).filter((p) => p.destacado === true)
         setProductos(destacados)
+        if (destacados.length > 0) {
+          // Iniciar en el primer elemento del bloque central
+          setCurrentIndex(destacados.length)
+        }
       } catch (err) {
         console.error('[Destacados] Error al cargar productos destacados:', err)
         if (isMounted) setProductos([])
@@ -122,16 +153,71 @@ export default function Destacados() {
     }
   }, [])
 
-  const scrollLeft = () => {
-    if (carouselRef.current) {
-      carouselRef.current.scrollBy({ left: -320, behavior: 'smooth' })
+  // Lista triplicada para garantizar buffer infinito a izquierda y derecha
+  const displayProductos = useMemo(() => {
+    if (!productos || productos.length === 0) return []
+    return [...productos, ...productos, ...productos]
+  }, [productos])
+
+  const n = productos.length
+
+  const handleTransitionEnd = () => {
+    if (n === 0) return
+    // Si sobrepasó el bloque central hacia la derecha
+    if (currentIndex >= 2 * n) {
+      setIsTransitioning(false)
+      setCurrentIndex((prev) => prev - n)
+    }
+    // Si sobrepasó el bloque central hacia la izquierda
+    else if (currentIndex < n) {
+      setIsTransitioning(false)
+      setCurrentIndex((prev) => prev + n)
     }
   }
 
-  const scrollRight = () => {
-    if (carouselRef.current) {
-      carouselRef.current.scrollBy({ left: 320, behavior: 'smooth' })
+  // Re-habilitar transición luego de reset instantáneo silencioso
+  useEffect(() => {
+    if (!isTransitioning) {
+      const raf = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsTransitioning(true)
+        })
+      })
+      return () => cancelAnimationFrame(raf)
     }
+  }, [isTransitioning])
+
+  const scrollLeft = () => {
+    if (n === 0) return
+    setIsTransitioning(true)
+    setCurrentIndex((prev) => prev - 1)
+  }
+
+  const scrollRight = () => {
+    if (n === 0) return
+    setIsTransitioning(true)
+    setCurrentIndex((prev) => prev + 1)
+  }
+
+  // Cálculo de desplazamiento transform:
+  // Mobile (<640px): Centrado exacto según el índice relativo (currentIndex)
+  // Ancho slide: min(78vw, 320px)
+  // Fórmula: translateX = (anchoContenedor / 2 - anchoSlide / 2) - indice * (anchoSlide + gap)
+  const getTranslateX = () => {
+    if (typeof window === 'undefined' || n === 0) return 0
+    const containerW = containerWidth || (carouselRef.current?.offsetWidth || (window.innerWidth - 32))
+
+    if (isMobile) {
+      const slideWidth = Math.min(window.innerWidth * 0.78, 320)
+      const gap = 16
+      return (containerW / 2 - slideWidth / 2) - (currentIndex * (slideWidth + gap))
+    }
+
+    // Desktop
+    const gap = 20
+    const cardWidth = window.innerWidth >= 768 ? 210 : 200
+    const step = cardWidth + gap
+    return -(currentIndex * step)
   }
 
   const handleOpenModal = (producto) => {
@@ -224,53 +310,63 @@ export default function Destacados() {
       ) : productos.length > 0 ? (
         <div
           ref={carouselRef}
-          className="flex gap-5 overflow-x-auto no-scrollbar scroll-smooth py-3 snap-x snap-mandatory justify-center sm:justify-start"
+          className="relative w-full overflow-hidden py-3"
         >
-          {productos.map((prod) => {
-            const catNombre = getCategoriaNombre(prod.idCategoria)
-            const rubroNombre = getRubroNombre(prod.idCategoria)
+          <div
+            onTransitionEnd={handleTransitionEnd}
+            className={`flex gap-4 sm:gap-5 justify-start ${
+              isTransitioning ? 'transition-transform duration-300 ease-out' : ''
+            }`}
+            style={{
+              transform: `translateX(${getTranslateX()}px)`,
+            }}
+          >
+            {displayProductos.map((prod, idx) => {
+              const catNombre = getCategoriaNombre(prod.idCategoria)
+              const rubroNombre = getRubroNombre(prod.idCategoria)
 
-            return (
-              <div
-                key={prod.id}
-                onClick={() => handleOpenModal(prod)}
-                className={`w-[260px] sm:w-[280px] md:w-[310px] shrink-0 snap-start bg-white rounded-2xl border transition-all duration-200 overflow-hidden flex flex-col group cursor-pointer ${
-                  isInCart(prod.id)
-                    ? 'border-red-400 ring-2 ring-red-100 shadow-md'
-                    : 'border-gray-200/90 shadow-sm hover:shadow-xl hover:border-red-300'
-                }`}
-              >
+              return (
+                <div
+                  key={`${prod.id}-buf-${idx}`}
+                  onClick={() => handleOpenModal(prod)}
+                  className={`w-[min(78vw,320px)] sm:w-[200px] md:w-[210px] shrink-0 bg-white rounded-2xl border transition-all duration-200 overflow-hidden flex flex-col group cursor-pointer ${
+                    isInCart(prod.id)
+                      ? 'border-red-400 ring-2 ring-red-100 shadow-md'
+                      : 'border-gray-200/90 shadow-sm hover:shadow-xl hover:border-red-300'
+                  }`}
+                >
                 {/* Contenedor de Imagen */}
-                <div className="h-48 w-full bg-gray-100 relative overflow-hidden flex items-center justify-center border-b border-gray-100">
+                <div className="card-img relative border-b border-gray-100 shrink-0">
                   {prod.imagen ? (
                     <img
-                      src={prod.imagen}
+                      src={getImageUrl(prod.imagen, 800)}
                       alt={prod.descripcion}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="group-hover:scale-105 transition-transform duration-300"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
-                    <div className="flex flex-col items-center justify-center text-gray-400">
-                      <Package className="w-12 h-12 stroke-[1.25] text-gray-300 group-hover:text-[var(--primary)] transition-colors" />
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-[#FAF6EE] text-[#8C7A60] gap-1 p-3 select-none">
+                      <Package className="w-5 h-5 stroke-[1.5] text-[#A69376] group-hover:text-[var(--primary)] transition-colors" />
+                      <span className="text-[11px] font-medium text-[#8C7A60] tracking-tight">Sin imagen</span>
                     </div>
                   )}
 
                   {/* Badge de destacado */}
-                  <span className="absolute top-3 left-3 bg-[var(--primary)] text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full shadow-xs">
+                  <span className="absolute top-2.5 left-2.5 bg-[var(--primary)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
                     Destacado
                   </span>
 
                   {/* Hover icon para ver detalle */}
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 text-xs font-bold text-[var(--text)] shadow-md">
-                      <Eye className="w-3.5 h-3.5 text-[var(--primary)]" />
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/95 text-[11px] font-bold text-[var(--text)] shadow-md">
+                      <Eye className="w-3 h-3 text-[var(--primary)]" />
                       <span>Ver ficha</span>
                     </span>
                   </div>
                 </div>
 
                 {/* Información del producto (SIN PRECIOS) */}
-                <div className="p-4 sm:p-5 flex flex-col justify-between flex-1">
+                <div className="p-3 sm:p-3.5 flex flex-col flex-1">
                   <div>
                     {/* Categoría / Rubro */}
                     {(catNombre || rubroNombre) && (
@@ -292,7 +388,7 @@ export default function Destacados() {
                     )}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-gray-100 space-y-2.5">
+                  <div className="mt-auto pt-3 border-t border-gray-100 space-y-2.5">
                     {/* Checkbox de selección + Selector de cantidad */}
                     <div
                       onClick={(e) => e.stopPropagation()}
@@ -361,6 +457,7 @@ export default function Destacados() {
               </div>
             )
           })}
+          </div>
         </div>
       ) : (
         /* Estado Vacío elegante */

@@ -17,3 +17,6 @@ git push -u origin main
 Conectar este repo en AI Studio (Build) y usar el prompt:
 "Leé GEMINI.md y docs/data-init.md. Ejecutá el PASO 1 del roadmap y esperá mi confirmación antes de continuar."
 PRUEBA 20:13
+
+Firebase: nelsonhammerle@gmail.com
+Claudinary: dedalo.integraciones@gmail.com

@@ -15,9 +15,12 @@ import {
   Minus,
   Grid,
   ClipboardPlus,
+  AlertTriangle,
+  AlertCircle,
 } from 'lucide-react'
 import { getCatalogoCompleto } from '../services/catalogoService.js'
 import { usePresupuesto } from '../context/PresupuestoContext.jsx'
+import { getImageUrl } from '../utils/cloudinary.js'
 import ModalProducto from './ModalProducto.jsx'
 
 /**
@@ -33,6 +36,10 @@ export default function SeccionProductos() {
   const [rubros, setRubros] = useState([])
   const [todasCategorias, setTodasCategorias] = useState([])
   const [productos, setProductos] = useState([])
+
+  // Estados de degradación por cuota y caché
+  const [isDesactualizado, setIsDesactualizado] = useState(false)
+  const [errorCuotaSinCache, setErrorCuotaSinCache] = useState(false)
 
   // Estados de filtro y navegación
   const [selectedRubro, setSelectedRubro] = useState(null)
@@ -89,9 +96,39 @@ export default function SeccionProductos() {
     return () => window.removeEventListener('resize', handleResize)
   }, [])
 
-  // Cantidad de productos a mostrar en vista sin filtros (4 filas = 16 productos en grilla de 4 col, o lotes de 16)
-  const PRODUCTOS_POR_LOTE = 16
-  const [visibleCount, setVisibleCount] = useState(PRODUCTOS_POR_LOTE)
+  // Función para determinar columnas según el breakpoint vigente
+  const getColumnCount = () => {
+    if (typeof window === 'undefined') return 2
+    const w = window.innerWidth
+    if (w >= 1400) return 5
+    if (w >= 1024) return 4
+    if (w >= 640) return 3
+    return 2
+  }
+
+  // Columnas vigentes del breakpoint (2 <640px, 3 640-1023, 4 1024-1399, 5 ≥1400)
+  const [cols, setCols] = useState(getColumnCount)
+  // Estado interno de líneas cargadas (inicialmente 5 líneas)
+  const [rowsLoaded, setRowsLoaded] = useState(5)
+
+  // Recalcular cols en resize y cambio de orientación con debounce
+  useEffect(() => {
+    let timeoutId = null
+    const handleResizeOrOrientation = () => {
+      clearTimeout(timeoutId)
+      timeoutId = setTimeout(() => {
+        setCols(getColumnCount())
+      }, 100)
+    }
+
+    window.addEventListener('resize', handleResizeOrOrientation)
+    window.addEventListener('orientationchange', handleResizeOrOrientation)
+    return () => {
+      clearTimeout(timeoutId)
+      window.removeEventListener('resize', handleResizeOrOrientation)
+      window.removeEventListener('orientationchange', handleResizeOrOrientation)
+    }
+  }, [])
 
   // Estados de carga
   const [loading, setLoading] = useState(true)
@@ -130,37 +167,40 @@ export default function SeccionProductos() {
     }
   }
 
+  // Función de carga compartida con soporte para reintento y bypass
+  const cargarCatalogo = async (forzar = false) => {
+    try {
+      setLoading(true)
+      const res = await getCatalogoCompleto(forzar)
+      const {
+        rubros: rubrosData,
+        categorias: categoriasData,
+        productos: productosData,
+        isDesactualizado: desact,
+        errorCuotaSinCache: sinCache,
+      } = res || {}
+
+      setIsDesactualizado(Boolean(desact))
+      setErrorCuotaSinCache(Boolean(sinCache))
+
+      setRubros(rubrosData || [])
+      setTodasCategorias(categoriasData || [])
+      setProductos(productosData || [])
+    } catch (err) {
+      console.error('[SeccionProductos] Error en carga de catálogo:', err)
+      setErrorCuotaSinCache(true)
+      setIsDesactualizado(false)
+      setRubros([])
+      setTodasCategorias([])
+      setProductos([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // Carga inicial única de datos activos compartida con cache en memoria
   useEffect(() => {
-    let isMounted = true
-
-    async function inicializarDatos() {
-      try {
-        setLoading(true)
-        const { rubros: rubrosData, categorias: categoriasData, productos: productosData } = await getCatalogoCompleto()
-
-        if (!isMounted) return
-
-        setRubros(rubrosData || [])
-        setTodasCategorias(categoriasData || [])
-        setProductos(productosData || [])
-      } catch (err) {
-        console.error('[SeccionProductos] Error en carga de catálogo:', err)
-        if (isMounted) {
-          setRubros([])
-          setTodasCategorias([])
-          setProductos([])
-        }
-      } finally {
-        if (isMounted) setLoading(false)
-      }
-    }
-
-    inicializarDatos()
-
-    return () => {
-      isMounted = false
-    }
+    cargarCatalogo()
   }, [])
 
   // Mapeos rápidos para descripciones
@@ -245,7 +285,7 @@ export default function SeccionProductos() {
     setSelectedRubro(null)
     setSelectedCategoria(null)
     setSearchTerm('')
-    setVisibleCount(PRODUCTOS_POR_LOTE)
+    setRowsLoaded(5)
     // En mobile (<768px) cerramos el drawer al resetear
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setIsSidebarOpen(false)
@@ -255,12 +295,12 @@ export default function SeccionProductos() {
   const handleClearRubro = () => {
     setSelectedRubro(null)
     setSelectedCategoria(null)
-    setVisibleCount(PRODUCTOS_POR_LOTE)
+    setRowsLoaded(5)
   }
 
   const handleClearCategoria = () => {
     setSelectedCategoria(null)
-    setVisibleCount(PRODUCTOS_POR_LOTE)
+    setRowsLoaded(5)
   }
 
   // ¿Hay algún filtro activo?
@@ -290,18 +330,18 @@ export default function SeccionProductos() {
     return prods
   }, [productos, selectedRubro, selectedCategoria, searchTerm, categoriasPorRubroMap])
 
-  // Productos a renderizar en pantalla (paginado solo si no hay filtros activos)
+  // Cantidad máxima de productos permitidos según las líneas cargadas y columnas vigentes
+  const limit = rowsLoaded * cols
+
+  // Productos a renderizar en pantalla según líneas y columnas
   const productosAMostrar = useMemo(() => {
-    if (!hayFiltrosActivos) {
-      return productosFiltrados.slice(0, visibleCount)
-    }
-    return productosFiltrados
-  }, [productosFiltrados, hayFiltrosActivos, visibleCount])
+    return productosFiltrados.slice(0, limit)
+  }, [productosFiltrados, limit])
 
-  const tieneMasProductos = !hayFiltrosActivos && visibleCount < productosFiltrados.length
+  const tieneMasProductos = productosAMostrar.length < productosFiltrados.length
 
-  const handleVerMas = () => {
-    setVisibleCount((prev) => prev + PRODUCTOS_POR_LOTE)
+  const handleVerMasLineas = () => {
+    setRowsLoaded((prev) => prev + 5)
   }
 
   const getCategoriaNombre = (idCat) => categoriasMap[idCat]?.descripcion || ''
@@ -390,6 +430,16 @@ export default function SeccionProductos() {
           <span>Rubros</span>
         </button>
       </div>
+
+      {/* Banner discreto ante degradación elegante de cuota */}
+      {isDesactualizado && (
+        <div className="mb-6 p-3.5 sm:p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm flex items-center gap-3 shadow-2xs">
+          <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 shrink-0" />
+          <span className="font-medium">
+            El contenido puede estar momentáneamente desactualizado. Estamos trabajando para normalizar el servicio.
+          </span>
+        </div>
+      )}
 
       {/* =============================================================
           ESTRUCTURA PRINCIPAL: PANEL LATERAL + CONTENIDO DE GRILLA
@@ -686,22 +736,24 @@ export default function SeccionProductos() {
 
           {/* 5. GRILLA DE PRODUCTOS (SIN PRECIOS NI CÓDIGOS) */}
           {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-[20px] justify-center">
-              {[1, 2, 3, 4, 5, 6].map((n) => (
+            <div className="catalogo-grid justify-center">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
                 <div
                   key={n}
-                  className="w-full h-auto rounded-2xl bg-white border border-gray-200 p-4 animate-pulse"
+                  className="w-full h-full rounded-2xl bg-white border border-gray-200 p-3 animate-pulse flex flex-col"
                 >
-                  <div className="w-full h-40 bg-gray-200 rounded-xl mb-4" />
-                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
-                  <div className="h-3 bg-gray-100 rounded w-1/2 mb-4" />
-                  <div className="h-8 bg-gray-100 rounded-lg w-full" />
+                  <div className="w-full aspect-square bg-gray-200 rounded-xl mb-3 shrink-0" />
+                  <div className="flex-1 flex flex-col">
+                    <div className="h-3.5 bg-gray-200 rounded w-3/4 mb-2" />
+                    <div className="h-3 bg-gray-100 rounded w-1/2 mb-3" />
+                    <div className="h-7 bg-gray-100 rounded-lg w-full mt-auto" />
+                  </div>
                 </div>
               ))}
             </div>
           ) : productosAMostrar.length > 0 ? (
             <>
-            <div className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-[20px] justify-center">
+            <div className="catalogo-grid justify-center">
               {productosAMostrar.map((prod) => {
                 const catNombre = getCategoriaNombre(prod.idCategoria)
                 const rubroNombre = getRubroNombre(prod.idCategoria)
@@ -710,43 +762,44 @@ export default function SeccionProductos() {
                   <div
                     key={prod.id}
                     onClick={() => handleOpenModal(prod)}
-                    className={`w-full h-auto bg-white rounded-2xl border transition-all duration-200 overflow-hidden flex flex-col group cursor-pointer ${
+                    className={`w-full h-full bg-white rounded-2xl border transition-all duration-200 overflow-hidden flex flex-col group cursor-pointer ${
                       isInCart(prod.id)
                         ? 'border-red-400 ring-2 ring-red-100 shadow-md'
                         : 'border-gray-200/90 shadow-xs hover:shadow-xl hover:border-red-300'
                     }`}
                   >
                     {/* Imagen o Placeholder */}
-                    <div className="h-40 sm:h-44 w-full bg-gray-100 relative overflow-hidden flex items-center justify-center border-b border-gray-100">
+                    <div className="card-img relative border-b border-gray-100 shrink-0">
                       {prod.imagen ? (
                         <img
-                          src={prod.imagen}
+                          src={getImageUrl(prod.imagen, 800)}
                           alt={prod.descripcion}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          className="group-hover:scale-105 transition-transform duration-300"
                           referrerPolicy="no-referrer"
                         />
                       ) : (
-                        <div className="flex flex-col items-center justify-center text-gray-400">
-                          <Package className="w-12 h-12 stroke-[1.25] text-gray-300 group-hover:text-[var(--primary)] transition-colors" />
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-[#FAF6EE] text-[#8C7A60] gap-1 p-3 select-none">
+                          <Package className="w-5 h-5 stroke-[1.5] text-[#A69376] group-hover:text-[var(--primary)] transition-colors" />
+                          <span className="text-[11px] font-medium text-[#8C7A60] tracking-tight">Sin imagen</span>
                         </div>
                       )}
 
                       {prod.destacado && (
-                        <span className="absolute top-3 left-3 bg-[var(--primary)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
+                        <span className="absolute top-2.5 left-2.5 bg-[var(--primary)] text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-xs">
                           Destacado
                         </span>
                       )}
 
                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 text-xs font-bold text-[var(--text)] shadow-md">
-                          <Eye className="w-3.5 h-3.5 text-[var(--primary)]" />
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/95 text-[11px] font-bold text-[var(--text)] shadow-md">
+                          <Eye className="w-3 h-3 text-[var(--primary)]" />
                           <span>Ver ficha</span>
                         </span>
                       </div>
                     </div>
 
                     {/* Detalle del producto (SIN PRECIOS NI CÓDIGOS) */}
-                    <div className="p-4 flex flex-col justify-between flex-1">
+                    <div className="p-3 sm:p-3.5 flex flex-col flex-1">
                       <div>
                         {/* Rubro y Categoría */}
                         {(rubroNombre || catNombre) && (
@@ -768,7 +821,7 @@ export default function SeccionProductos() {
                         )}
                       </div>
 
-                      <div className="mt-4 pt-3 border-t border-gray-100 space-y-2.5">
+                      <div className="mt-auto pt-3 border-t border-gray-100 space-y-2.5">
                         {/* Checkbox de selección + Cantidad */}
                         <div
                           onClick={(e) => e.stopPropagation()}
@@ -826,7 +879,7 @@ export default function SeccionProductos() {
                         <div className="pt-1">
                           <button
                             type="button"
-                            onClick={() => setSelectedProducto(prod)}
+                            onClick={() => handleOpenModal(prod)}
                             className="btn-secondary w-full"
                           >
                             Ver detalle
@@ -839,23 +892,75 @@ export default function SeccionProductos() {
               })}
             </div>
 
-            {/* Botón Ver más elegante cuando no hay filtros - Terciario (acción mínima) */}
+            {/* Paginación por líneas: Botón 'Ver más líneas' y contador */}
             {tieneMasProductos && (
-              <div className="flex flex-col items-center justify-center pt-8 pb-4">
+              <div className="w-full flex flex-col items-center justify-center pt-8 pb-6 text-center">
                 <button
                   type="button"
-                  onClick={handleVerMas}
-                  className="btn-tertiary"
+                  onClick={handleVerMasLineas}
+                  className="btn-primary !px-6 !py-3 text-sm font-bold shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-2"
                 >
-                  <span>Ver más...</span>
-                  <ChevronDown className="w-4 h-4" />
+                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                  <span>Ver más líneas</span>
                 </button>
-                <span className="text-xs text-gray-400 mt-2 font-medium">
-                  Mostrando {productosAMostrar.length} de {productosFiltrados.length} productos
+                <span className="text-xs text-gray-500 mt-3 font-medium">
+                  Mostrando {productosAMostrar.length} de {productosFiltrados.length}
                 </span>
               </div>
             )}
+
+            {/* Terminador de fin de catálogo de línea completa (100% del ancho) */}
+            {!tieneMasProductos && productosFiltrados.length > 0 && (
+              <div className="w-full pt-10 pb-6 block">
+                <div className="relative flex items-center justify-center">
+                  <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                    <div className="w-full border-t border-[#D8C7A5]/60" />
+                  </div>
+                  <div className="relative bg-white px-4 flex items-center gap-2">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
+                    <span className="text-xs sm:text-sm font-semibold tracking-wide text-[#8C7A60]">
+                      Fin del catálogo · {productosFiltrados.length} productos
+                    </span>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--primary)]" />
+                  </div>
+                </div>
+              </div>
+            )}
             </>
+          ) : errorCuotaSinCache ? (
+            /* Estado de degradación sin caché disponible */
+            <div className="w-full bg-amber-50/50 rounded-2xl border border-amber-200/80 p-8 sm:p-12 text-center my-4 shadow-2xs">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4 border border-amber-200">
+                <AlertCircle className="w-7 h-7 stroke-[1.75]" />
+              </div>
+              <h4 className="text-base sm:text-lg font-bold text-[var(--text)] mb-2">
+                Estamos con mucha demanda en este momento. Probá de nuevo en unas horas.
+              </h4>
+              <p className="text-xs sm:text-sm text-[var(--muted)] mb-6 max-w-md mx-auto">
+                Podés intentar recargar los datos ahora o comunicarte directamente con nosotros por WhatsApp.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => cargarCatalogo(true)}
+                  className="btn-primary !px-6 !py-2.5 inline-flex items-center gap-2 text-sm font-bold shadow-md cursor-pointer"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Reintentar</span>
+                </button>
+                <a
+                  href={`https://wa.me/5492612430105?text=${encodeURIComponent(
+                    'Hola, quisiera consultar por productos del catálogo'
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-whatsapp !px-5 !py-2.5 inline-flex items-center gap-2 text-sm font-bold shadow-xs"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Consultar por WhatsApp</span>
+                </a>
+              </div>
+            </div>
           ) : (
             /* Estado Vacío */
             <div className="w-full bg-gray-50 rounded-2xl border border-gray-200 p-8 text-center my-4">

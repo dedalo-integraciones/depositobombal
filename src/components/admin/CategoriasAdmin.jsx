@@ -20,10 +20,16 @@ import {
   deleteCategoriaLogico,
 } from '../../services/categoriasService.js'
 import { getAllRubros } from '../../services/rubrosService.js'
+import { invalidarCatalogoCache } from '../../services/catalogoService.js'
+import { getImageUrl } from '../../utils/cloudinary.js'
+import { registrarPublicIdHuerfano } from '../../services/borradosPendientesService.js'
+import { useAuth } from '../../context/AuthContext.jsx'
 import ImageUploader from './ImageUploader.jsx'
 import ModalConfirmacionDesactivacion from './ModalConfirmacionDesactivacion.jsx'
 
 export default function CategoriasAdmin() {
+  const { user, userProfile, profile, loading: authLoading, mustChangePasswordRequired } = useAuth()
+  const activeProfile = userProfile || profile
   const [categorias, setCategorias] = useState([])
   const [rubros, setRubros] = useState([])
   const [loading, setLoading] = useState(true)
@@ -41,6 +47,7 @@ export default function CategoriasAdmin() {
     descripcion: '',
     observaciones: '',
     imagenUrl: '',
+    cloudinaryPublicId: '',
     activo: true,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -62,15 +69,21 @@ export default function CategoriasAdmin() {
       setRubros(rubrosData)
     } catch (err) {
       console.error('[CategoriasAdmin] Error al cargar datos:', err)
-      setError('No se pudieron cargar las categorías o rubros.')
+      const technicalMsg = err?.message
+        ? `${err.message}${err.code ? ` (código: ${err.code})` : ''}`
+        : String(err)
+      setError(`Error técnico al cargar categorías o rubros: ${technicalMsg}`)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    if (authLoading || mustChangePasswordRequired || !user) {
+      return
+    }
     fetchData()
-  }, [])
+  }, [user?.uid, activeProfile?.uid, activeProfile?.mustChangePassword, authLoading, mustChangePasswordRequired])
 
   const showSuccess = (msg) => {
     setSuccessMessage(msg)
@@ -90,6 +103,7 @@ export default function CategoriasAdmin() {
       descripcion: '',
       observaciones: '',
       imagenUrl: '',
+      cloudinaryPublicId: '',
       activo: true,
     })
     setFormError('')
@@ -103,6 +117,7 @@ export default function CategoriasAdmin() {
       descripcion: cat.descripcion || '',
       observaciones: cat.observaciones || '',
       imagenUrl: cat.imagenUrl || cat.imagen || '',
+      cloudinaryPublicId: cat.cloudinaryPublicId || cat.public_id || '',
       activo: cat.activo !== undefined ? cat.activo : true,
     })
     setFormError('')
@@ -131,6 +146,7 @@ export default function CategoriasAdmin() {
         await createCategoria(formData)
         showSuccess(`Categoría "${formData.descripcion}" creada con éxito.`)
       }
+      invalidarCatalogoCache()
       setIsModalOpen(false)
       fetchData()
     } catch (err) {
@@ -149,7 +165,19 @@ export default function CategoriasAdmin() {
     if (!categoriaADesactivar) return
     setIsDesactivando(true)
     try {
-      await deleteCategoriaLogico(categoriaADesactivar.id)
+      const publicId = (categoriaADesactivar.cloudinaryPublicId || categoriaADesactivar.public_id || '').trim()
+      if (publicId) {
+        await registrarPublicIdHuerfano(publicId, 'categorias')
+        await updateCategoria(categoriaADesactivar.id, {
+          activo: false,
+          imagenUrl: '',
+          imagen: '',
+          cloudinaryPublicId: '',
+        })
+      } else {
+        await deleteCategoriaLogico(categoriaADesactivar.id)
+      }
+      invalidarCatalogoCache()
       showSuccess(`Categoría "${categoriaADesactivar.descripcion}" desactivada correctamente.`)
       setCategoriaADesactivar(null)
       fetchData()
@@ -164,6 +192,7 @@ export default function CategoriasAdmin() {
   const handleReactivar = async (cat) => {
     try {
       await updateCategoria(cat.id, { activo: true })
+      invalidarCatalogoCache()
       showSuccess(`Categoría "${cat.descripcion}" reactivada con éxito.`)
       fetchData()
     } catch (err) {
@@ -299,12 +328,13 @@ export default function CategoriasAdmin() {
                   return (
                     <tr key={cat.id} className="hover:bg-gray-50/75 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center shrink-0">
+                        <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 overflow-hidden flex items-center justify-center shrink-0 p-0.5">
                           {img ? (
                             <img
-                              src={img}
+                              src={getImageUrl(img, 400)}
                               alt={cat.descripcion}
-                              className="w-full h-full object-cover"
+                              className="max-w-full max-h-full w-auto h-auto object-contain mx-auto"
+                              style={{ objectFit: 'contain' }}
                               referrerPolicy="no-referrer"
                               onError={(e) => {
                                 e.target.onerror = null
@@ -509,7 +539,28 @@ export default function CategoriasAdmin() {
               {/* Componente de Imagen */}
               <ImageUploader
                 value={formData.imagenUrl}
-                onChange={(url) => setFormData({ ...formData, imagenUrl: url })}
+                publicId={formData.cloudinaryPublicId}
+                origen="categorias"
+                onChange={(url, newPublicId) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    imagenUrl: url,
+                    cloudinaryPublicId: newPublicId || '',
+                  }))
+                }
+                onUpdateDocument={
+                  editingCategoria?.id
+                    ? async ({ imagenUrl, cloudinaryPublicId }) => {
+                        await updateCategoria(editingCategoria.id, {
+                          imagenUrl,
+                          imagen: imagenUrl,
+                          cloudinaryPublicId,
+                        })
+                        invalidarCatalogoCache()
+                        fetchData()
+                      }
+                    : null
+                }
                 label="Imagen de la Categoría"
               />
 

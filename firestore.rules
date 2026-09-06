@@ -38,6 +38,17 @@ service cloud.firestore {
       allow write: if esAdmin();
     }
 
+    // Meta / Versión de Catálogo: lectura pública; escritura si esAdmin
+    match /meta/{id} {
+      allow read: if true;
+      allow write: if esAdmin();
+    }
+
+    // Registro de public_id huérfanos de Cloudinary para borrado diferido
+    match /cloudinary_borrados_pendientes/{id} {
+      allow read, write: if esAdmin();
+    }
+
     // Colección única de usuarios:
     // - Lectura: superadmin puede listar toda la colección; cada usuario puede leer su propio documento
     // - Creación: solo superadmin
@@ -46,7 +57,11 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow read: if esSuperAdmin() || (request.auth != null && (request.auth.uid == uid || request.auth.token.email == uid));
       allow create: if esSuperAdmin();
-      allow update: if esSuperAdmin() || (request.auth != null && (request.auth.uid == uid || request.auth.token.email == uid));
+      allow update: if esSuperAdmin() || (
+        request.auth != null &&
+        (request.auth.uid == uid || request.auth.token.email == uid) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'updatedAt'])
+      );
       allow delete: if esSuperAdmin();
     }
   }

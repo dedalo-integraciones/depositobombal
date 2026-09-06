@@ -18,10 +18,16 @@ import {
   updateRubro,
   deleteRubroLogico,
 } from '../../services/rubrosService.js'
+import { invalidarCatalogoCache } from '../../services/catalogoService.js'
+import { getImageUrl } from '../../utils/cloudinary.js'
+import { registrarPublicIdHuerfano } from '../../services/borradosPendientesService.js'
+import { useAuth } from '../../context/AuthContext.jsx'
 import ImageUploader from './ImageUploader.jsx'
 import ModalConfirmacionDesactivacion from './ModalConfirmacionDesactivacion.jsx'
 
 export default function RubrosAdmin() {
+  const { user, userProfile, profile, loading: authLoading, mustChangePasswordRequired } = useAuth()
+  const activeProfile = userProfile || profile
   const [rubros, setRubros] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -33,6 +39,7 @@ export default function RubrosAdmin() {
   const [formData, setFormData] = useState({
     descripcion: '',
     imagenUrl: '',
+    cloudinaryPublicId: '',
     activo: true,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -50,15 +57,21 @@ export default function RubrosAdmin() {
       setRubros(data)
     } catch (err) {
       console.error('[RubrosAdmin] Error al cargar rubros:', err)
-      setError('No se pudieron cargar los rubros. Verificá la conexión.')
+      const technicalMsg = err?.message
+        ? `${err.message}${err.code ? ` (código: ${err.code})` : ''}`
+        : String(err)
+      setError(`Error técnico al cargar rubros: ${technicalMsg}`)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    if (authLoading || mustChangePasswordRequired || !user) {
+      return
+    }
     fetchRubros()
-  }, [])
+  }, [user?.uid, activeProfile?.uid, activeProfile?.mustChangePassword, authLoading, mustChangePasswordRequired])
 
   const showSuccess = (msg) => {
     setSuccessMessage(msg)
@@ -70,6 +83,7 @@ export default function RubrosAdmin() {
     setFormData({
       descripcion: '',
       imagenUrl: '',
+      cloudinaryPublicId: '',
       activo: true,
     })
     setFormError('')
@@ -81,6 +95,7 @@ export default function RubrosAdmin() {
     setFormData({
       descripcion: rubro.descripcion || '',
       imagenUrl: rubro.imagenUrl || rubro.imagen || '',
+      cloudinaryPublicId: rubro.cloudinaryPublicId || rubro.public_id || '',
       activo: rubro.activo !== undefined ? rubro.activo : true,
     })
     setFormError('')
@@ -105,6 +120,7 @@ export default function RubrosAdmin() {
         await createRubro(formData)
         showSuccess(`Rubro "${formData.descripcion}" creado con éxito.`)
       }
+      invalidarCatalogoCache()
       setIsModalOpen(false)
       fetchRubros()
     } catch (err) {
@@ -123,7 +139,19 @@ export default function RubrosAdmin() {
     if (!rubroADesactivar) return
     setIsDesactivando(true)
     try {
-      await deleteRubroLogico(rubroADesactivar.id)
+      const publicId = (rubroADesactivar.cloudinaryPublicId || rubroADesactivar.public_id || '').trim()
+      if (publicId) {
+        await registrarPublicIdHuerfano(publicId, 'rubros')
+        await updateRubro(rubroADesactivar.id, {
+          activo: false,
+          imagenUrl: '',
+          imagen: '',
+          cloudinaryPublicId: '',
+        })
+      } else {
+        await deleteRubroLogico(rubroADesactivar.id)
+      }
+      invalidarCatalogoCache()
       showSuccess(`Rubro "${rubroADesactivar.descripcion}" desactivado correctamente.`)
       setRubroADesactivar(null)
       fetchRubros()
@@ -138,6 +166,7 @@ export default function RubrosAdmin() {
   const handleReactivar = async (rubro) => {
     try {
       await updateRubro(rubro.id, { activo: true })
+      invalidarCatalogoCache()
       showSuccess(`Rubro "${rubro.descripcion}" reactivado con éxito.`)
       fetchRubros()
     } catch (err) {
@@ -240,12 +269,13 @@ export default function RubrosAdmin() {
                   return (
                     <tr key={rubro.id} className="hover:bg-gray-50/75 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center shrink-0">
+                        <div className="w-12 h-12 rounded-lg bg-white border border-gray-200 overflow-hidden flex items-center justify-center shrink-0 p-0.5">
                           {img ? (
                             <img
-                              src={img}
+                              src={getImageUrl(img, 400)}
                               alt={rubro.descripcion}
-                              className="w-full h-full object-cover"
+                              className="max-w-full max-h-full w-auto h-auto object-contain mx-auto"
+                              style={{ objectFit: 'contain' }}
                               referrerPolicy="no-referrer"
                               onError={(e) => {
                                 e.target.onerror = null
@@ -394,7 +424,28 @@ export default function RubrosAdmin() {
               {/* Componente de Imagen */}
               <ImageUploader
                 value={formData.imagenUrl}
-                onChange={(url) => setFormData({ ...formData, imagenUrl: url })}
+                publicId={formData.cloudinaryPublicId}
+                origen="rubros"
+                onChange={(url, newPublicId) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    imagenUrl: url,
+                    cloudinaryPublicId: newPublicId || '',
+                  }))
+                }
+                onUpdateDocument={
+                  editingRubro?.id
+                    ? async ({ imagenUrl, cloudinaryPublicId }) => {
+                        await updateRubro(editingRubro.id, {
+                          imagenUrl,
+                          imagen: imagenUrl,
+                          cloudinaryPublicId,
+                        })
+                        invalidarCatalogoCache()
+                        fetchRubros()
+                      }
+                    : null
+                }
                 label="Imagen del Rubro"
               />
 

@@ -48,8 +48,10 @@ export function AuthProvider({ children }) {
         return null
       }
 
-      setUserProfile(profile)
-      return profile
+      // Crear un objeto nuevo (no mutación) para que todos los consumidores se re-rendericen
+      const freshProfile = profile ? { ...profile } : null
+      setUserProfile(freshProfile)
+      return freshProfile
     } catch (err) {
       console.warn('[AuthContext] Error al cargar perfil de usuario:', err)
       return null
@@ -128,14 +130,30 @@ export function AuthProvider({ children }) {
   }
 
   const refreshUserProfile = async () => {
-    if (user) {
-      return await fetchProfile(user)
+    const auth = app ? getAuth(app) : null
+    const currentUser = auth?.currentUser || user
+    if (currentUser) {
+      const freshDoc = await getUsuarioByUid(currentUser.uid, currentUser.email)
+      if (freshDoc) {
+        // Crear un objeto nuevo inmutable para que React detecte el cambio de referencia y re-renderice
+        const newProfile = { ...freshDoc }
+        setUserProfile(newProfile)
+        return newProfile
+      }
+      return await fetchProfile(currentUser)
     }
     return null
   }
 
   const clearMustChangePasswordFlag = () => {
-    setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false } : null))
+    setUserProfile((prev) => {
+      if (!prev) return null
+      return {
+        ...prev,
+        mustChangePassword: false,
+        _updatedAt: Date.now(),
+      }
+    })
   }
 
   // Normalización de rol e identificadores
@@ -153,6 +171,7 @@ export function AuthProvider({ children }) {
       value={{
         user,
         userProfile,
+        profile: userProfile,
         userRole: userProfile?.rol || (isSuperAdmin ? 'SADMIN' : 'ADMIN'),
         isSuperAdmin,
         isAdmin,

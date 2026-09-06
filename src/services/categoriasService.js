@@ -9,6 +9,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { db, isFirebaseConfigured } from '../lib/firebase.js'
+import { bumpCatalogoVersion } from './versionService.js'
 
 const COLLECTION_NAME = 'categorias'
 
@@ -41,7 +42,7 @@ export async function getCategoriasActivas() {
     )
   } catch (error) {
     console.error('[categoriasService] Error al obtener categorías activas:', error)
-    return []
+    throw error
   }
 }
 
@@ -127,9 +128,11 @@ export async function createCategoria(data) {
     activo: Boolean(data.activo !== undefined ? data.activo : true),
     imagen: data.imagenUrl || data.imagen || '',
     imagenUrl: data.imagenUrl || data.imagen || '',
+    cloudinaryPublicId: (data.cloudinaryPublicId || data.public_id || '').trim(),
   }
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), payload)
+  bumpCatalogoVersion()
   return docRef.id
 }
 
@@ -153,9 +156,13 @@ export async function updateCategoria(id, data) {
     payload.imagen = img
     payload.imagenUrl = img
   }
+  if (data.cloudinaryPublicId !== undefined || data.public_id !== undefined) {
+    payload.cloudinaryPublicId = (data.cloudinaryPublicId || data.public_id || '').trim()
+  }
 
   const docRef = doc(db, COLLECTION_NAME, id)
   await updateDoc(docRef, payload)
+  bumpCatalogoVersion()
   return id
 }
 

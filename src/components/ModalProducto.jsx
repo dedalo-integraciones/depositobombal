@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { X, Package, Tag, Layers, FileText, MessageCircle, Plus, Minus, FileSpreadsheet } from 'lucide-react'
+import { X, Package, Tag, Layers, FileText, MessageCircle, Plus, Minus } from 'lucide-react'
 import { getCategoriaById } from '../services/categoriasService.js'
 import { getRubroById } from '../services/rubrosService.js'
 import { usePresupuesto } from '../context/PresupuestoContext.jsx'
+import { getImageUrl } from '../utils/cloudinary.js'
 
 /**
  * Modal de detalle de producto.
@@ -132,25 +133,29 @@ export default function ModalProducto({
         {/* Contenido scrolleable */}
         <div className="p-6 overflow-y-auto space-y-6">
           {/* Imagen o Placeholder */}
-          <div className="w-full h-56 sm:h-64 rounded-xl bg-gray-100 overflow-hidden relative flex items-center justify-center border border-gray-200">
+          <div
+            className="w-full bg-white rounded-xl overflow-hidden relative flex items-center justify-center border border-gray-200 p-2 sm:p-4"
+            style={{ maxHeight: '500px', backgroundColor: '#ffffff' }}
+          >
             {producto.imagen ? (
               <img
-                src={producto.imagen}
+                src={getImageUrl(producto.imagen, 1200)}
                 alt={producto.descripcion}
-                className="w-full h-full object-cover"
+                className="max-h-[500px] w-auto max-w-full object-contain mx-auto"
+                style={{ maxHeight: '500px', objectFit: 'contain' }}
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="flex flex-col items-center justify-center text-gray-400">
-                <Package className="w-14 h-14 stroke-[1.25] text-gray-300 mb-2" />
-                <span className="text-xs text-gray-400 font-medium">
-                  Fotografía de producto en actualización
+              <div className="flex flex-col items-center justify-center bg-[#FAF6EE] text-[#8C7A60] rounded-xl py-16 px-4 gap-2">
+                <Package className="w-8 h-8 stroke-[1.5] text-[#A69376]" />
+                <span className="text-xs font-medium text-[#8C7A60]">
+                  Sin imagen
                 </span>
               </div>
             )}
 
             {producto.destacado && (
-              <span className="absolute top-3 right-3 bg-[var(--primary)] text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
+              <span className="absolute top-3 right-3 bg-[var(--primary)] text-white text-xs font-bold px-3 py-1 rounded-full shadow-md z-10">
                 Destacado
               </span>
             )}

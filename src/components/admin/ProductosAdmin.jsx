@@ -24,12 +24,16 @@ import {
 } from '../../services/productosService.js'
 import { getAllCategorias } from '../../services/categoriasService.js'
 import { getAllRubros } from '../../services/rubrosService.js'
+import { invalidarCatalogoCache } from '../../services/catalogoService.js'
+import { getImageUrl } from '../../utils/cloudinary.js'
+import { registrarPublicIdHuerfano } from '../../services/borradosPendientesService.js'
 import { useAuth } from '../../context/AuthContext.jsx'
 import ImageUploader from './ImageUploader.jsx'
 import ModalConfirmacionDesactivacion from './ModalConfirmacionDesactivacion.jsx'
 
 export default function ProductosAdmin() {
-  const { user } = useAuth()
+  const { user, userProfile, profile, loading: authLoading, mustChangePasswordRequired } = useAuth()
+  const activeProfile = userProfile || profile
   const [productos, setProductos] = useState([])
   const [categorias, setCategorias] = useState([])
   const [rubros, setRubros] = useState([])
@@ -57,6 +61,7 @@ export default function ProductosAdmin() {
     popular: false,
     activo: true,
     imagenUrl: '',
+    cloudinaryPublicId: '',
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
@@ -79,15 +84,22 @@ export default function ProductosAdmin() {
       setRubros(rubrosData)
     } catch (err) {
       console.error('[ProductosAdmin] Error al cargar datos:', err)
-      setError('No se pudieron cargar los productos. Verificá la conexión.')
+      const technicalMsg = err?.message
+        ? `${err.message}${err.code ? ` (código: ${err.code})` : ''}`
+        : String(err)
+      setError(`Error técnico al cargar productos: ${technicalMsg}`)
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    // Si la autenticación aún está cargando o el usuario debe cambiar su contraseña temporal, no consultar antes de tiempo
+    if (authLoading || mustChangePasswordRequired || !user) {
+      return
+    }
     fetchData()
-  }, [])
+  }, [user?.uid, activeProfile?.uid, activeProfile?.mustChangePassword, authLoading, mustChangePasswordRequired])
 
   const showSuccess = (msg) => {
     setSuccessMessage(msg)
@@ -131,6 +143,7 @@ export default function ProductosAdmin() {
       popular: false,
       activo: true,
       imagenUrl: '',
+      cloudinaryPublicId: '',
     })
     setFormError('')
     setIsModalOpen(true)
@@ -152,6 +165,7 @@ export default function ProductosAdmin() {
       popular: Boolean(prod.popular),
       activo: prod.activo !== undefined ? prod.activo : true,
       imagenUrl: prod.imagenUrl || prod.imagen || '',
+      cloudinaryPublicId: prod.cloudinaryPublicId || prod.public_id || '',
     })
     setFormError('')
     setIsModalOpen(true)
@@ -196,6 +210,7 @@ export default function ProductosAdmin() {
         await createProducto(formData, user?.uid)
         showSuccess(`Producto "${formData.descripcion}" creado con éxito.`)
       }
+      invalidarCatalogoCache()
       setIsModalOpen(false)
       fetchData()
     } catch (err) {
@@ -214,7 +229,23 @@ export default function ProductosAdmin() {
     if (!productoADesactivar) return
     setIsDesactivando(true)
     try {
-      await deleteProductoLogico(productoADesactivar.id, user?.uid)
+      const publicId = (productoADesactivar.cloudinaryPublicId || productoADesactivar.public_id || '').trim()
+      if (publicId) {
+        await registrarPublicIdHuerfano(publicId, 'productos')
+        await updateProducto(
+          productoADesactivar.id,
+          {
+            activo: false,
+            imagenUrl: '',
+            imagen: '',
+            cloudinaryPublicId: '',
+          },
+          user?.uid
+        )
+      } else {
+        await deleteProductoLogico(productoADesactivar.id, user?.uid)
+      }
+      invalidarCatalogoCache()
       showSuccess(`Producto "${productoADesactivar.descripcion}" desactivado correctamente.`)
       setProductoADesactivar(null)
       fetchData()
@@ -229,6 +260,7 @@ export default function ProductosAdmin() {
   const handleReactivar = async (prod) => {
     try {
       await updateProducto(prod.id, { activo: true }, user?.uid)
+      invalidarCatalogoCache()
       showSuccess(`Producto "${prod.descripcion}" reactivado con éxito.`)
       fetchData()
     } catch (err) {
@@ -466,12 +498,13 @@ export default function ProductosAdmin() {
                   return (
                     <tr key={prod.id} className="hover:bg-gray-50/75 transition-colors">
                       <td className="px-4 py-3.5">
-                        <div className="w-10 h-10 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center shrink-0">
+                        <div className="w-10 h-10 rounded-lg bg-white border border-gray-200 overflow-hidden flex items-center justify-center shrink-0 p-0.5">
                           {img ? (
                             <img
-                              src={img}
+                              src={getImageUrl(img, 400)}
                               alt={prod.descripcion}
-                              className="w-full h-full object-cover"
+                              className="max-w-full max-h-full w-auto h-auto object-contain mx-auto"
+                              style={{ objectFit: 'contain' }}
                               referrerPolicy="no-referrer"
                               onError={(e) => {
                                 e.target.onerror = null
@@ -754,7 +787,32 @@ export default function ProductosAdmin() {
               {/* Componente de Imagen */}
               <ImageUploader
                 value={formData.imagenUrl}
-                onChange={(url) => setFormData({ ...formData, imagenUrl: url })}
+                publicId={formData.cloudinaryPublicId}
+                origen="productos"
+                onChange={(url, newPublicId) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    imagenUrl: url,
+                    cloudinaryPublicId: newPublicId || '',
+                  }))
+                }
+                onUpdateDocument={
+                  editingProducto?.id
+                    ? async ({ imagenUrl, cloudinaryPublicId }) => {
+                        await updateProducto(
+                          editingProducto.id,
+                          {
+                            imagenUrl,
+                            imagen: imagenUrl,
+                            cloudinaryPublicId,
+                          },
+                          user?.uid
+                        )
+                        invalidarCatalogoCache()
+                        fetchData()
+                      }
+                    : null
+                }
                 label="Imagen del Producto"
               />
 

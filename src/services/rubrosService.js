@@ -9,6 +9,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { db, isFirebaseConfigured } from '../lib/firebase.js'
+import { bumpCatalogoVersion } from './versionService.js'
 
 const COLLECTION_NAME = 'rubros'
 
@@ -41,7 +42,7 @@ export async function getRubrosActivos() {
     )
   } catch (error) {
     console.error('[rubrosService] Error al obtener rubros activos:', error)
-    return []
+    throw error
   }
 }
 
@@ -109,9 +110,11 @@ export async function createRubro(data) {
     activo: Boolean(data.activo !== undefined ? data.activo : true),
     imagen: data.imagenUrl || data.imagen || '',
     imagenUrl: data.imagenUrl || data.imagen || '',
+    cloudinaryPublicId: (data.cloudinaryPublicId || data.public_id || '').trim(),
   }
 
   const docRef = await addDoc(collection(db, COLLECTION_NAME), payload)
+  bumpCatalogoVersion()
   return docRef.id
 }
 
@@ -133,9 +136,13 @@ export async function updateRubro(id, data) {
     payload.imagen = img
     payload.imagenUrl = img
   }
+  if (data.cloudinaryPublicId !== undefined || data.public_id !== undefined) {
+    payload.cloudinaryPublicId = (data.cloudinaryPublicId || data.public_id || '').trim()
+  }
 
   const docRef = doc(db, COLLECTION_NAME, id)
   await updateDoc(docRef, payload)
+  bumpCatalogoVersion()
   return id
 }
 
