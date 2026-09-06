@@ -11,12 +11,11 @@ import {
   Eye,
   EyeOff,
   Clock,
-  Info,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 
 export default function AdminLogin() {
-  const { user, login, resetPassword, isFirebaseConfigured } = useAuth()
+  const { user, login, resetPassword, isFirebaseConfigured, authError } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [searchParams] = useSearchParams()
@@ -54,6 +53,12 @@ export default function AdminLogin() {
 
   const getFriendlyErrorMessage = (error) => {
     const code = error?.code || ''
+    const msg = error?.message || ''
+
+    if (msg.includes('deshabilitada')) {
+      return msg
+    }
+
     switch (code) {
       case 'auth/invalid-email':
         return 'El correo electrónico no tiene un formato válido.'
@@ -74,7 +79,7 @@ export default function AdminLogin() {
       case 'auth/network-request-failed':
         return 'Error de conexión. Verificá tu acceso a internet.'
       default:
-        return 'No se pudo iniciar sesión. Verificá tus credenciales e intentá nuevamente.'
+        return msg || 'No se pudo iniciar sesión. Verificá tus credenciales e intentá nuevamente.'
     }
   }
 
@@ -135,6 +140,8 @@ export default function AdminLogin() {
     setShowForgotModal(true)
   }
 
+  const activeError = errorMessage || authError
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -190,13 +197,13 @@ export default function AdminLogin() {
             </div>
           )}
 
-          {errorMessage && (
+          {activeError && (
             <div
               id="alert-error-login"
               className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-3"
             >
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-600" />
-              <span>{errorMessage}</span>
+              <span>{activeError}</span>
             </div>
           )}
 

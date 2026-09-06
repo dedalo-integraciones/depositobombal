@@ -8,14 +8,16 @@ import {
   FolderTree,
   Layers,
   User,
+  Users,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext.jsx'
 import RubrosAdmin from '../components/admin/RubrosAdmin.jsx'
 import CategoriasAdmin from '../components/admin/CategoriasAdmin.jsx'
 import ProductosAdmin from '../components/admin/ProductosAdmin.jsx'
+import MustChangePasswordModal from '../components/admin/MustChangePasswordModal.jsx'
 
 export default function Admin() {
-  const { user, logout } = useAuth()
+  const { user, isSuperAdmin, mustChangePasswordRequired, logout } = useAuth()
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('productos') // rubros, categorias, productos
 
@@ -30,6 +32,9 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Modal bloqueante para primer ingreso si requiere cambio de contraseña */}
+      {mustChangePasswordRequired && <MustChangePasswordModal />}
+
       {/* Barra superior de administración */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -58,11 +63,25 @@ export default function Admin() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              {/* Link a /usuarios visible ÚNICAMENTE para superadmin */}
+              {isSuperAdmin && (
+                <Link
+                  to="/usuarios"
+                  id="admin-btn-gestion-usuarios"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg transition-colors"
+                  title="Gestión de usuarios del sistema"
+                >
+                  <Users className="w-3.5 h-3.5 text-amber-600" />
+                  <span className="hidden sm:inline">Gestión Usuarios</span>
+                </Link>
+              )}
+
               <div className="hidden sm:flex items-center gap-2 text-xs text-gray-600 bg-gray-100 px-3 py-1.5 rounded-full">
                 <User className="w-3.5 h-3.5 text-gray-500" />
                 <span className="font-medium text-gray-800">{user?.email}</span>
               </div>
+
               <button
                 type="button"
                 id="admin-btn-logout"
@@ -70,7 +89,7 @@ export default function Admin() {
                 className="inline-flex items-center gap-2 text-sm font-medium text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3.5 py-1.5 rounded-lg transition-colors cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />
-                <span>Cerrar sesión</span>
+                <span className="hidden xs:inline">Cerrar sesión</span>
               </button>
             </div>
           </div>

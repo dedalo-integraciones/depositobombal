@@ -6,6 +6,7 @@ import Home from './pages/Home.jsx'
 // Lazy loading de rutas secundarias para aligerar el bundle inicial de navegación
 const Admin = lazy(() => import('./pages/Admin.jsx'))
 const AdminLogin = lazy(() => import('./pages/AdminLogin.jsx'))
+const UsuariosPage = lazy(() => import('./pages/UsuariosPage.jsx'))
 const LegalPage = lazy(() => import('./pages/LegalPage.jsx'))
 const AdminAuthLayout = lazy(() =>
   import('./components/admin/AdminLayout.jsx').then((m) => ({ default: m.AdminAuthLayout }))
@@ -34,7 +35,7 @@ function LazyLegalRoute({ loader }) {
   if (!content) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#fcfcfd]">
-        <div className="w-8 h-8 border-3 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-3 border-[var(--primary)] border-t-transparent rounded-full animate-spin text-[var(--primary)] shrink-0" />
       </div>
     )
   }
@@ -45,7 +46,7 @@ function LazyLegalRoute({ loader }) {
 function LoadingFallback() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
-      <div className="w-8 h-8 border-3 border-[var(--primary)] border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-3 border-[var(--primary)] border-t-transparent rounded-full animate-spin text-[var(--primary)] shrink-0" />
     </div>
   )
 }
@@ -71,6 +72,7 @@ export default function App() {
           </Route>
           <Route element={<AdminProtectedLayout />}>
             <Route path="/admin/*" element={<Admin />} />
+            <Route path="/usuarios" element={<UsuariosPage />} />
           </Route>
         </Routes>
       </Suspense>

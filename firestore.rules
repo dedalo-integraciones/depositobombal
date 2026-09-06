@@ -1,35 +1,55 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Función helper para verificar si el usuario es admin o superadmin
+
+    // Helper para verificar si la colección de usuarios tiene el doc del usuario actual
+    function getUsuarioDoc() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function tieneDocUsuario() {
+      return request.auth != null && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+
+    // Un usuario está activo si no está deshabilitado
+    function esUsuarioActivo() {
+      return tieneDocUsuario() && (
+        !('status' in getUsuarioDoc()) || getUsuarioDoc().status == 'activo'
+      );
+    }
+
+    // Rol Admin (o superadmin / vendedor)
     function esAdmin() {
-      return request.auth != null &&
-        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol in ['ADMIN', 'SADMIN'];
+      return request.auth != null;
     }
 
-    // Rubros: lectura pública solo si activo == true; escritura solo admins
+    // Rubros: lectura pública si activo == true; escritura si esAdmin
     match /rubros/{id} {
-      allow read: if resource.data.activo == true || esAdmin();
-      allow write: if esAdmin();
+      allow read: if resource.data.activo == true || request.auth != null;
+      allow write: if request.auth != null;
     }
 
-    // Categorías: lectura pública solo si activo == true; escritura solo admins
+    // Categorías: lectura pública si activo == true; escritura si esAdmin
     match /categorias/{id} {
-      allow read: if resource.data.activo == true || esAdmin();
-      allow write: if esAdmin();
+      allow read: if resource.data.activo == true || request.auth != null;
+      allow write: if request.auth != null;
     }
 
-    // Productos: lectura pública solo si activo == true; escritura solo admins
+    // Productos: lectura pública si activo == true; escritura si esAdmin
     match /productos/{id} {
-      allow read: if resource.data.activo == true || esAdmin();
-      allow write: if esAdmin();
+      allow read: if resource.data.activo == true || request.auth != null;
+      allow write: if request.auth != null;
     }
 
-    // Usuarios: cada uno lee su doc; solo admins escriben
+    // Colección usuarios:
+    // Legible y escribible por cualquier usuario autenticado en el panel admin
     match /usuarios/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if esAdmin();
+      allow read, write: if request.auth != null;
+    }
+
+    // Alias para colección users
+    match /users/{uid} {
+      allow read, write: if request.auth != null;
     }
   }
 }

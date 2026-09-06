@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -9,23 +9,59 @@ import {
   browserSessionPersistence,
 } from 'firebase/auth'
 import { app, isFirebaseConfigured } from '../lib/firebase.js'
+import { getUsuarioByUid, seedSuperAdmin } from '../services/usuariosService.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
+  const [userProfile, setUserProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [authError, setAuthError] = useState(null)
+
+  const fetchProfile = useCallback(async (currentUser) => {
+    if (!currentUser) {
+      setUserProfile(null)
+      return null
+    }
+
+    try {
+      let profile = await getUsuarioByUid(currentUser.uid)
+
+      // Si no existe perfil en Firestore para el usuario autenticado, crearlo automáticamente como SADMIN
+      if (!profile) {
+        await seedSuperAdmin(currentUser.uid, currentUser.email)
+        profile = await getUsuarioByUid(currentUser.uid)
+      }
+
+      // Si el perfil está deshabilitado, bloquear y cerrar sesión
+      if (profile && profile.status === 'deshabilitado') {
+        const auth = getAuth(app)
+        await signOut(auth)
+        setUser(null)
+        setUserProfile(null)
+        setAuthError('Tu cuenta de usuario ha sido deshabilitada. Contactá al administrador.')
+        return null
+      }
+
+      setUserProfile(profile)
+      return profile
+    } catch (err) {
+      console.warn('[AuthContext] Error al cargar perfil de usuario:', err)
+      return null
+    }
+  }, [])
 
   useEffect(() => {
     if (!isFirebaseConfigured || !app) {
       setUser(null)
+      setUserProfile(null)
       setLoading(false)
       return
     }
 
     const auth = getAuth(app)
 
-    // Configurar persistencia de sesión a nivel navegador/pestaña (se destruye al cerrar la pestaña o ventana)
     try {
       setPersistence(auth, browserSessionPersistence).catch((err) => {
         console.warn('[Auth] No se pudo fijar browserSessionPersistence:', err)
@@ -34,26 +70,41 @@ export function AuthProvider({ children }) {
       console.warn('[Auth] Error al inicializar persistencia:', e)
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser)
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      setAuthError(null)
+      if (currentUser) {
+        setUser(currentUser)
+        await fetchProfile(currentUser)
+      } else {
+        setUser(null)
+        setUserProfile(null)
+      }
       setLoading(false)
     })
 
     return () => unsubscribe()
-  }, [])
+  }, [fetchProfile])
 
   const login = async (email, password) => {
     if (!isFirebaseConfigured || !app) {
       throw new Error('Firebase no está configurado en este entorno.')
     }
+    setAuthError(null)
     const auth = getAuth(app)
-    // Asegurar que la sesión dure únicamente mientras la pestaña/navegador esté abierto
     try {
       await setPersistence(auth, browserSessionPersistence)
     } catch (persistErr) {
       console.warn('[Auth] Advertencia al aplicar persistencia de sesión:', persistErr)
     }
-    return signInWithEmailAndPassword(auth, email.trim(), password)
+
+    const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password)
+    const profile = await fetchProfile(userCredential.user)
+
+    if (profile && profile.status === 'deshabilitado') {
+      throw new Error('Tu cuenta de usuario ha sido deshabilitada. Contactá al administrador.')
+    }
+
+    return userCredential
   }
 
   const resetPassword = async (email) => {
@@ -67,14 +118,41 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     if (!app) return
     const auth = getAuth(app)
+    setUserProfile(null)
+    setAuthError(null)
     return signOut(auth)
   }
 
+  const refreshUserProfile = async () => {
+    if (user) {
+      await fetchProfile(user)
+    }
+  }
+
+  const clearMustChangePasswordFlag = () => {
+    if (userProfile) {
+      setUserProfile((prev) => (prev ? { ...prev, mustChangePassword: false } : null))
+    }
+  }
+
+  // Normalización de rol e identificadores
+  const rawRole = (userProfile?.rol || '').toLowerCase()
+  const isSuperAdmin = !userProfile || rawRole === 'superadmin' || rawRole === 'sadmin'
+  const isAdmin = isSuperAdmin || rawRole === 'admin'
+  const mustChangePasswordRequired = Boolean(userProfile?.mustChangePassword)
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        userProfile,
+        userRole: userProfile?.rol || 'SADMIN',
+        isSuperAdmin,
+        isAdmin,
+        mustChangePasswordRequired,
+        clearMustChangePasswordFlag,
+        refreshUserProfile,
+        authError,
         loading,
         login,
         resetPassword,
