@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { UploadCloud, Image as ImageIcon, X, Loader2, AlertCircle, Link as LinkIcon } from 'lucide-react'
+import { UploadCloud, Image as ImageIcon, Trash2, Loader2, AlertCircle, Link as LinkIcon } from 'lucide-react'
 
 // Función para aplicar transformaciones de optimización en Cloudinary
 function applyCloudinaryTransformation(url) {
@@ -218,10 +218,10 @@ export default function ImageUploader({ value, onChange, label = 'Imagen' }) {
           <button
             type="button"
             onClick={handleRemove}
-            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors"
-            title="Quitar imagen"
+            className="p-1.5 rounded-md text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+            title="Borrar imagen"
           >
-            <X className="w-4 h-4" />
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       ) : useUrlInput ? (
