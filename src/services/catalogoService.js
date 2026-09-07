@@ -1,7 +1,7 @@
 import { getRubrosActivos } from './rubrosService.js'
 import { getCategoriasActivas } from './categoriasService.js'
 import { getProductosActivos } from './productosService.js'
-import { getCatalogoVersionFirestore, bumpCatalogoVersion } from './versionService.js'
+import { getCatalogoVersionFirestore } from './versionService.js'
 
 // Claves de localStorage
 const LS_CATALOGO_KEY = 'deposito_bombal_catalogo_cache'
@@ -199,11 +199,10 @@ export async function getCatalogoCompleto(forceRefresh = false) {
         const fresco = await fetchCatalogoFirestoreFresco()
         catalogoDataCache = fresco
 
-        // Si no existía el documento de versión en Firestore todavía, lo inicializamos
+        // Si no existía el documento de versión en Firestore todavía, usamos timestamp local como referencia
         let versionAGuardar = firestoreVersion
         if (!versionAGuardar) {
           versionAGuardar = String(Date.now())
-          bumpCatalogoVersion()
         }
 
         // Guardar en localStorage con la versión correspondiente

@@ -48,6 +48,6 @@ export async function bumpCatalogoVersion() {
       updatedAt: serverTimestamp(),
     }, { merge: true })
   } catch (error) {
-    console.error('[versionService] Error al actualizar meta/catalogoVersion:', error)
+    console.warn('[versionService] No se pudo actualizar meta/catalogoVersion (requiere sesión admin):', error?.message || error)
   }
 }

@@ -48,7 +48,7 @@ export default function Footer() {
               </div>
             </div>
             <p className="text-sm text-gray-400 leading-[1.8]">
-              Distribución integral de insumos, descartables y embalajes en Mendoza y la región.
+              Venta y distribución mayorista y minorista en Mendoza. Armá tu lista y solicitá tu presupuesto personalizado sin compromiso.
             </p>
             {/* Redes sociales: solo íconos */}
             <div className="flex items-center gap-3 pt-1">

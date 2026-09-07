@@ -42,6 +42,14 @@ export default function Header() {
     }
   }
 
+  const handleLogoClick = (e) => {
+    setIsMobileMenuOpen(false)
+    if (location.pathname === '/') {
+      e.preventDefault()
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
   return (
     <header
       className={`sticky top-0 left-0 right-0 z-40 w-full transition-all duration-300 ${
@@ -65,7 +73,11 @@ export default function Header() {
           </button>
 
           {/* Logo / Marca */}
-          <Link to="/" className="flex items-center gap-2.5 sm:gap-3 group shrink-0">
+          <Link
+            to="/"
+            onClick={handleLogoClick}
+            className="flex items-center gap-2.5 sm:gap-3 group shrink-0"
+          >
             {/* Logo modo desktop */}
             <img
               src="/logoheader-d.webp"
