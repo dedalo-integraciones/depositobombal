@@ -3,6 +3,8 @@ import {
   X,
   Trash2,
   Send,
+  Mail,
+  MessageCircle,
   CheckCircle,
   AlertCircle,
   Clock,
@@ -18,6 +20,7 @@ import {
   checkRateLimit,
   recordSubmitTimestamp,
 } from '../utils/security.js'
+import { EMPRESA } from '../config/empresa.js'
 
 export default function CarritoDrawer() {
   const {
@@ -45,6 +48,7 @@ export default function CarritoDrawer() {
   const [submitStatus, setSubmitStatus] = useState(null) // 'success' | 'error' | null
   const [statusMessage, setStatusMessage] = useState('')
   const [rateLimitSeconds, setRateLimitSeconds] = useState(0)
+  const [whatsappNotice, setWhatsappNotice] = useState(null) // { url: string } | null
 
   // Cerrar con tecla Escape
   useEffect(() => {
@@ -86,7 +90,7 @@ export default function CarritoDrawer() {
     }
   }
 
-  // Validación en cliente
+  // Validación en cliente compartida e idéntica para ambos canales
   const validateForm = () => {
     const errors = {}
 
@@ -129,8 +133,10 @@ export default function CarritoDrawer() {
     return Object.keys(errors).length === 0
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  // Canal 1: Enviar por Email (FormSubmit)
+  const handleEnviarEmail = async (e) => {
+    if (e) e.preventDefault()
+    setWhatsappNotice(null)
 
     // 1. Detección honeypot (si el bot rellenó el campo oculto)
     if (formData._honey) {
@@ -176,7 +182,7 @@ export default function CarritoDrawer() {
       const listaProductosParaEmail = itemsList
         .map((item, index) => {
           const unidadStr = item.obsUnidad ? ` (${item.obsUnidad})` : ''
-          return `${index + 1}. [Código: ${item.id}] ${item.descripcion}${unidadStr} — Cantidad: ${item.cantidad}`
+          return `${index + 1}. [Código: ${item.id}] ${item.descripcion}${unidadStr} - Cantidad: ${item.cantidad}`
         })
         .join('\n')
 
@@ -210,7 +216,7 @@ export default function CarritoDrawer() {
         recordSubmitTimestamp('presupuesto')
         setSubmitStatus('success')
         setStatusMessage(
-          '¡Tu pedido de presupuesto fue enviado con éxito! Nos comunicaremos a la brevedad.'
+          '¡Tu pedido de presupuesto fue enviado con éxito por email! Nos comunicaremos a la brevedad.'
         )
         clearCart()
         setFormData({
@@ -233,6 +239,72 @@ export default function CarritoDrawer() {
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  // Canal 2: Enviar por WhatsApp
+  const handleEnviarWhatsApp = (e) => {
+    if (e) e.preventDefault()
+    setSubmitStatus(null)
+
+    // 1. Detección honeypot
+    if (formData._honey) {
+      console.warn('Spam detectado via honeypot')
+      return
+    }
+
+    // 2. Validación de carrito vacío
+    if (itemsList.length === 0) {
+      setSubmitStatus('error')
+      setStatusMessage('No hay productos seleccionados para solicitar presupuesto.')
+      setWhatsappNotice(null)
+      return
+    }
+
+    // 3. Validación de campos
+    if (!validateForm()) {
+      setWhatsappNotice(null)
+      return
+    }
+
+    // Sanitización de datos
+    const nombreLimpio = sanitizeText(formData.nombre)
+    const emailLimpio = sanitizeText(formData.email)
+    const telefonoLimpio = sanitizeText(formData.telefono)
+    const direccionLimpia = sanitizeText(formData.direccion)
+    const mensajeLimpio = sanitizeText(formData.mensaje)
+
+    // Construcción del mensaje con formato WhatsApp limpio (saltos de línea, negritas, lista numerada)
+    const lines = []
+    lines.push('*PEDIDO DE PRESUPUESTO - Depósito Bombal*')
+    lines.push('')
+    lines.push('*Datos del Cliente:*')
+    lines.push(`- *Nombre / Razón Social:* ${nombreLimpio}`)
+    lines.push(`- *Teléfono:* ${telefonoLimpio}`)
+    lines.push(`- *Email:* ${emailLimpio}`)
+    lines.push(`- *Dirección:* ${direccionLimpia}`)
+    lines.push('')
+    lines.push('*Detalle del Pedido:*')
+    itemsList.forEach((item, index) => {
+      const unidadStr = item.obsUnidad ? ` (${item.obsUnidad})` : ''
+      const cant = item.cantidad || 1
+      lines.push(`${index + 1}. ${item.descripcion}${unidadStr} - *Cant:* ${cant}`)
+    })
+    if (mensajeLimpio) {
+      lines.push('')
+      lines.push('*Observaciones:*')
+      lines.push(mensajeLimpio)
+    }
+
+    const fullMessage = lines.join('\n')
+    const whatsappUrl = `https://wa.me/${EMPRESA.whatsappNumero}?text=${encodeURIComponent(fullMessage)}`
+
+    // Abrir en pestaña nueva disparado directamente por el clic del usuario
+    window.open(whatsappUrl, '_blank')
+
+    // Mostrar aviso en el formulario con fallback visible
+    setWhatsappNotice({
+      url: whatsappUrl,
+    })
   }
 
   if (!isDrawerOpen) return null
@@ -280,7 +352,7 @@ export default function CarritoDrawer() {
 
         {/* Contenido scrolleable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Feedback de Envío Exitoso */}
+          {/* Feedback de Envío Exitoso por Email */}
           {submitStatus === 'success' && (
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-start gap-3 animate-fadeIn">
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
@@ -314,7 +386,7 @@ export default function CarritoDrawer() {
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-2 text-xs">
               <Clock className="w-4 h-4 text-amber-600 shrink-0" />
               <span>
-                Tiempo de espera entre envíos: <strong>{rateLimitSeconds} s</strong>
+                Tiempo de espera entre envíos por email: <strong>{rateLimitSeconds} s</strong>
               </span>
             </div>
           )}
@@ -416,7 +488,7 @@ export default function CarritoDrawer() {
           {/* -------------------------------------------------------------
               FORMULARIO DE CONTACTO PARA SOLICITUD FORMAL
               ------------------------------------------------------------- */}
-          <form id="form-pedido-presupuesto" onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <form id="form-pedido-presupuesto" onSubmit={handleEnviarEmail} className="space-y-4 pt-2">
             <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--muted)] border-t border-gray-200 pt-4">
               Datos de contacto para el presupuesto
             </h3>
@@ -561,55 +633,93 @@ export default function CarritoDrawer() {
                 {formData.mensaje.length}/500
               </div>
             </div>
+
+            {/* Aviso tras abrir WhatsApp (debajo de observaciones) */}
+            {whatsappNotice && (
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 flex items-start gap-3 animate-fadeIn">
+                <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm flex-1">
+                  <p className="font-bold text-emerald-900 mb-1">
+                    Se abrió WhatsApp con tu pedido listo: dale enviar para completarlo.
+                  </p>
+                  <p className="text-emerald-800 text-xs mb-2">
+                    Si tu navegador bloqueó la ventana o no se abrió automáticamente, podés abrirlo manualmente:
+                  </p>
+                  <a
+                    href={whatsappNotice.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 font-bold text-emerald-900 hover:text-emerald-950 underline text-xs cursor-pointer"
+                  >
+                    <MessageCircle className="w-4 h-4 text-emerald-700" />
+                    <span>Abrir WhatsApp con el pedido</span>
+                  </a>
+                </div>
+              </div>
+            )}
           </form>
         </div>
 
-        {/* Pie del Drawer con el botón de acción - Primario (Enviar formulario) */}
-        <div className="p-4 sm:p-6 border-t border-gray-200 bg-gray-50 flex flex-col gap-2">
-          <button
-            type="submit"
-            form="form-pedido-presupuesto"
-            disabled={isSubmitting || itemsList.length === 0 || rateLimitSeconds > 0}
-            className="btn-primary w-full shadow-md hover:shadow-lg"
-          >
-            {isSubmitting ? (
-              <span className="inline-flex items-center gap-2">
-                <svg
-                  className="animate-spin h-4 w-4 text-white"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
-                Enviando pedido de presupuesto...
-              </span>
-            ) : rateLimitSeconds > 0 ? (
-              <span className="inline-flex items-center gap-1.5">
-                <Clock className="w-4 h-4" />
-                Esperar {rateLimitSeconds}s para reenviar
-              </span>
-            ) : itemsList.length === 0 ? (
-              <span>Seleccioná productos para enviar</span>
-            ) : (
-              <span className="inline-flex items-center gap-2">
-                <Send className="w-4 h-4" />
-                Solicitar Presupuesto ({totalProducts} {totalProducts === 1 ? 'artículo' : 'artículos'})
-              </span>
-            )}
-          </button>
+        {/* Pie del Drawer con los botones de doble canal de envío (Email y WhatsApp) */}
+        <div className="p-4 sm:p-6 border-t border-gray-200 bg-gray-50 flex flex-col gap-2.5">
+          <div className="flex flex-col sm:flex-row items-stretch gap-2.5">
+            {/* Opción 1: Enviar por email */}
+            <button
+              type="button"
+              id="btn-presupuesto-email"
+              onClick={handleEnviarEmail}
+              disabled={isSubmitting || itemsList.length === 0 || rateLimitSeconds > 0}
+              className="btn-primary flex-1 !min-h-[42px] !py-2.5 !px-4 !rounded-xl !text-xs sm:!text-sm !font-bold justify-center shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg
+                    className="animate-spin h-4 w-4 text-white shrink-0"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                  <span>Enviando...</span>
+                </span>
+              ) : rateLimitSeconds > 0 ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <span>Esperar {rateLimitSeconds}s</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <Mail className="w-4 h-4 shrink-0" />
+                  <span>Enviar por email</span>
+                </span>
+              )}
+            </button>
+
+            {/* Opción 2: Enviar por WhatsApp */}
+            <button
+              type="button"
+              id="btn-presupuesto-whatsapp"
+              onClick={handleEnviarWhatsApp}
+              disabled={itemsList.length === 0}
+              className="btn-whatsapp flex-1 !min-h-[42px] !py-2.5 !px-4 !rounded-xl !text-xs sm:!text-sm !font-bold justify-center shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <MessageCircle className="w-4 h-4 shrink-0" />
+              <span>Enviar por WhatsApp</span>
+            </button>
+          </div>
 
           <p className="text-[11px] text-center text-gray-500">
             Respuesta personalizada sin compromiso comercial.

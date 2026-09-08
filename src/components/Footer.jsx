@@ -10,20 +10,10 @@ import {
   ShieldCheck,
   FileText,
 } from 'lucide-react'
+import { EMPRESA } from '../config/empresa.js'
 
 export default function Footer() {
   const currentYear = new Date().getFullYear()
-
-  const EMPRESA = {
-    nombre: 'Depósito Bombal',
-    direccion: 'Chile 171, Luján de Cuyo, Mendoza',
-    telefono: '+54 9 261 243-0105',
-    telefonoLink: '+5492612430105',
-    email: 'depositobombal.sa@hotmail.com',
-    facebook: 'https://www.facebook.com/profile.php?id=100063650979539',
-    instagram: 'https://www.instagram.com/p/C1nX4jxJJKv/',
-    maps: 'https://www.google.com/maps/search/?api=1&query=Chile+171%2C+Luj%C3%A1n+de+Cuyo%2C+Mendoza',
-  }
 
   return (
     <footer className="w-full bg-gray-900 text-gray-300 border-t border-gray-800">
@@ -103,7 +93,7 @@ export default function Footer() {
               <li className="flex items-center gap-2.5">
                 <MessageCircle className="w-4 h-4 text-[#25D366] shrink-0" />
                 <a
-                  href={`https://wa.me/${EMPRESA.telefonoLink}`}
+                  href={`https://wa.me/${EMPRESA.whatsappNumero}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-white transition-colors leading-[1.8]"
