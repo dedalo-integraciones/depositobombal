@@ -53,6 +53,17 @@ function getCatalogoLocalStorage() {
 }
 
 /**
+ * Obtiene el catálogo cacheado en memoria o localStorage sin realizar NINGUNA lectura a Firestore.
+ */
+export function getCatalogoCachedLocal() {
+  if (catalogoDataCache) {
+    return catalogoDataCache
+  }
+  const local = getCatalogoLocalStorage()
+  return local ? local.data : null
+}
+
+/**
  * Función auxiliar para guardar catálogo y versión en localStorage.
  */
 function setCatalogoLocalStorage(data, version) {

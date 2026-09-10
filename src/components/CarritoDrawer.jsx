@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import {
   X,
   Trash2,
-  Send,
   Mail,
   MessageCircle,
   CheckCircle,
@@ -12,6 +11,8 @@ import {
   Plus,
   Minus,
   FileSpreadsheet,
+  RotateCcw,
+  PlusCircle,
 } from 'lucide-react'
 import { usePresupuesto } from '../context/PresupuestoContext.jsx'
 import {
@@ -22,15 +23,41 @@ import {
 } from '../utils/security.js'
 import { EMPRESA } from '../config/empresa.js'
 
+function formatFechaLegible(isoDate) {
+  if (!isoDate) return ''
+  try {
+    const d = new Date(isoDate)
+    if (isNaN(d.getTime())) return ''
+    return new Intl.DateTimeFormat('es-AR', {
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d)
+  } catch {
+    return ''
+  }
+}
+
 export default function CarritoDrawer() {
   const {
     itemsList,
+    itemsDisponiblesList,
+    estado,
+    fechaGuardado,
+    fechaEnvio,
+    canal,
     totalProducts,
+    totalDisponibles,
     isDrawerOpen,
     closeDrawer,
     updateCantidad,
     removeItem,
     clearCart,
+    iniciarNuevaLista,
+    reusarComoBorrador,
+    marcarEnviado,
   } = usePresupuesto()
 
   // Form fields
@@ -49,6 +76,7 @@ export default function CarritoDrawer() {
   const [statusMessage, setStatusMessage] = useState('')
   const [rateLimitSeconds, setRateLimitSeconds] = useState(0)
   const [whatsappNotice, setWhatsappNotice] = useState(null) // { url: string } | null
+  const [mostrarAvisoBorrador, setMostrarAvisoBorrador] = useState(true)
 
   // Cerrar con tecla Escape
   useEffect(() => {
@@ -144,10 +172,10 @@ export default function CarritoDrawer() {
       return
     }
 
-    // 2. Validación de carrito vacío
-    if (itemsList.length === 0) {
+    // 2. Validación de ítems disponibles
+    if (!itemsDisponiblesList || itemsDisponiblesList.length === 0) {
       setSubmitStatus('error')
-      setStatusMessage('No hay productos seleccionados para solicitar presupuesto.')
+      setStatusMessage('No hay productos disponibles seleccionados para solicitar presupuesto.')
       return
     }
 
@@ -178,8 +206,8 @@ export default function CarritoDrawer() {
       const direccionLimpia = escapeHtml(sanitizeText(formData.direccion))
       const mensajeLimpio = escapeHtml(sanitizeText(formData.mensaje))
 
-      // Armado de la lista de productos para el cuerpo del email (incluye código interno para uso de la empresa)
-      const listaProductosParaEmail = itemsList
+      // Armado de la lista de productos disponibles para el cuerpo del email
+      const listaProductosParaEmail = itemsDisponiblesList
         .map((item, index) => {
           const unidadStr = item.obsUnidad ? ` (${item.obsUnidad})` : ''
           return `${index + 1}. [Código: ${item.id}] ${item.descripcion}${unidadStr} - Cantidad: ${item.cantidad}`
@@ -199,7 +227,7 @@ export default function CarritoDrawer() {
         Dirección: direccionLimpia,
         Mensaje: mensajeLimpio || 'Sin mensaje adicional',
         'Lista de Productos (Uso Interno)': listaProductosParaEmail,
-        'Total de Artículos': itemsList.length,
+        'Total de Artículos': itemsDisponiblesList.length,
       }
 
       const response = await fetch(`https://formsubmit.co/ajax/${recipientEmail}`, {
@@ -212,21 +240,14 @@ export default function CarritoDrawer() {
       })
 
       if (response.ok) {
-        // Éxito: registrar timestamp para rate limiting, limpiar carrito y formulario
+        // Éxito: registrar timestamp para rate limiting y marcar lista como enviada
         recordSubmitTimestamp('presupuesto')
         setSubmitStatus('success')
         setStatusMessage(
           '¡Tu pedido de presupuesto fue enviado con éxito por email! Nos comunicaremos a la brevedad.'
         )
-        clearCart()
-        setFormData({
-          nombre: '',
-          email: '',
-          telefono: '',
-          direccion: '',
-          mensaje: '',
-          _honey: '',
-        })
+        // Marcar estado como 'enviado' conservando la lista
+        marcarEnviado('email')
       } else {
         throw new Error('Respuesta no satisfactoria de FormSubmit')
       }
@@ -252,10 +273,10 @@ export default function CarritoDrawer() {
       return
     }
 
-    // 2. Validación de carrito vacío
-    if (itemsList.length === 0) {
+    // 2. Validación de ítems disponibles
+    if (!itemsDisponiblesList || itemsDisponiblesList.length === 0) {
       setSubmitStatus('error')
-      setStatusMessage('No hay productos seleccionados para solicitar presupuesto.')
+      setStatusMessage('No hay productos disponibles seleccionados para solicitar presupuesto.')
       setWhatsappNotice(null)
       return
     }
@@ -273,7 +294,7 @@ export default function CarritoDrawer() {
     const direccionLimpia = sanitizeText(formData.direccion)
     const mensajeLimpio = sanitizeText(formData.mensaje)
 
-    // Construcción del mensaje con formato WhatsApp limpio (saltos de línea, negritas, lista numerada)
+    // Construcción del mensaje con formato WhatsApp limpio
     const lines = []
     lines.push('*PEDIDO DE PRESUPUESTO - Depósito Bombal*')
     lines.push('')
@@ -284,7 +305,7 @@ export default function CarritoDrawer() {
     lines.push(`- *Dirección:* ${direccionLimpia}`)
     lines.push('')
     lines.push('*Detalle del Pedido:*')
-    itemsList.forEach((item, index) => {
+    itemsDisponiblesList.forEach((item, index) => {
       const unidadStr = item.obsUnidad ? ` (${item.obsUnidad})` : ''
       const cant = item.cantidad || 1
       lines.push(`${index + 1}. ${item.descripcion}${unidadStr} - *Cant:* ${cant}`)
@@ -298,16 +319,21 @@ export default function CarritoDrawer() {
     const fullMessage = lines.join('\n')
     const whatsappUrl = `https://wa.me/${EMPRESA.whatsappNumero}?text=${encodeURIComponent(fullMessage)}`
 
-    // Abrir en pestaña nueva disparado directamente por el clic del usuario
+    // Abrir en pestaña nueva
     window.open(whatsappUrl, '_blank')
 
-    // Mostrar aviso en el formulario con fallback visible
+    // Marcar como enviado por WhatsApp conservando los ítems
+    marcarEnviado('whatsapp')
+
+    // Mostrar aviso con enlace directo debajo de observaciones
     setWhatsappNotice({
       url: whatsappUrl,
     })
   }
 
   if (!isDrawerOpen) return null
+
+  const canalNombre = canal === 'whatsapp' ? 'WhatsApp' : 'Email'
 
   return (
     <div
@@ -336,6 +362,11 @@ export default function CarritoDrawer() {
               </h2>
               <span className="text-xs text-[var(--muted)]">
                 {totalProducts} {totalProducts === 1 ? 'producto seleccionado' : 'productos seleccionados'}
+                {totalProducts !== totalDisponibles && (
+                  <span className="text-amber-700 font-medium ml-1">
+                    ({totalDisponibles} disponible{totalDisponibles === 1 ? '' : 's'})
+                  </span>
+                )}
               </span>
             </div>
           </div>
@@ -352,6 +383,69 @@ export default function CarritoDrawer() {
 
         {/* Contenido scrolleable */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* BANNER: Estado 'enviado' */}
+          {estado === 'enviado' && (
+            <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-950 flex flex-col gap-3 animate-fadeIn">
+              <div className="flex items-start gap-3">
+                <CheckCircle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div className="text-xs sm:text-sm flex-1">
+                  <p className="font-bold text-blue-900 leading-snug">
+                    Esta lista se envió el {formatFechaLegible(fechaEnvio)} por {canalNombre}.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-blue-100">
+                <button
+                  type="button"
+                  id="btn-iniciar-lista-nueva"
+                  onClick={iniciarNuevaLista}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-blue-200 hover:bg-blue-100/70 text-blue-900 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Iniciar lista nueva</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-reusar-borrador"
+                  onClick={reusarComoBorrador}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reusar como borrador</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* AVISO: Estado 'borrador' */}
+          {estado === 'borrador' && itemsList.length > 0 && fechaGuardado && mostrarAvisoBorrador && (
+            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-700 flex items-center justify-between gap-3 text-xs animate-fadeIn">
+              <div className="flex items-center gap-2 min-w-0">
+                <Clock className="w-4 h-4 text-gray-500 shrink-0" />
+                <span className="truncate">
+                  Borrador guardado el <strong>{formatFechaLegible(fechaGuardado)}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMostrarAvisoBorrador(false)}
+                  className="text-gray-600 hover:text-gray-900 font-semibold cursor-pointer underline text-[11px]"
+                >
+                  Continuar
+                </button>
+                <span className="text-gray-300">|</span>
+                <button
+                  type="button"
+                  onClick={clearCart}
+                  className="text-red-600 hover:text-red-700 font-semibold cursor-pointer text-[11px]"
+                >
+                  Vaciar
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Feedback de Envío Exitoso por Email */}
           {submitStatus === 'success' && (
             <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-start gap-3 animate-fadeIn">
@@ -412,64 +506,100 @@ export default function CarritoDrawer() {
 
             {itemsList.length > 0 ? (
               <div className="space-y-3">
-                {itemsList.map((item) => (
-                  <div
-                    key={item.id}
-                    className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/60 flex items-center justify-between gap-3 shadow-2xs"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-bold text-xs sm:text-sm text-[var(--text)] line-clamp-2 leading-snug">
-                        {item.descripcion}
-                      </h4>
-                      {item.obsUnidad && (
-                        <span className="text-[11px] text-[var(--muted)] font-medium block mt-0.5">
-                          Unidad: {item.obsUnidad}
-                        </span>
-                      )}
-                    </div>
+                {itemsList.map((item) => {
+                  const isNoDisponible = Boolean(item.noDisponible)
 
-                    {/* Selector de cantidad + Botón quitar */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="flex items-center border border-gray-300 rounded-lg bg-white overflow-hidden shadow-2xs">
-                        <button
-                          type="button"
-                          onClick={() => updateCantidad(item.id, item.cantidad - 1)}
-                          disabled={item.cantidad <= 1}
-                          aria-label="Disminuir cantidad"
-                          className="px-2 py-1 text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <input
-                          type="number"
-                          min="1"
-                          max="9999"
-                          value={item.cantidad}
-                          onChange={(e) => updateCantidad(item.id, e.target.value)}
-                          className="w-11 text-center text-xs font-bold text-[var(--text)] py-1 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => updateCantidad(item.id, item.cantidad + 1)}
-                          aria-label="Aumentar cantidad"
-                          className="px-2 py-1 text-gray-500 hover:bg-gray-100 cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 shadow-2xs ${
+                        isNoDisponible
+                          ? 'bg-gray-100/90 border-gray-300 opacity-75'
+                          : 'bg-gray-50/60 border-gray-200'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4
+                            className={`font-bold text-xs sm:text-sm leading-snug line-clamp-2 ${
+                              isNoDisponible ? 'text-gray-500 line-through' : 'text-[var(--text)]'
+                            }`}
+                          >
+                            {item.descripcion}
+                          </h4>
+                          {isNoDisponible && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              No disponible
+                            </span>
+                          )}
+                        </div>
+
+                        {item.obsUnidad && (
+                          <span className="text-[11px] text-[var(--muted)] font-medium block mt-0.5">
+                            Unidad: {item.obsUnidad}
+                          </span>
+                        )}
+
+                        {isNoDisponible && (
+                          <span className="text-[11px] text-amber-800 font-medium block mt-0.5">
+                            Producto inactivo en el catálogo. Excluido del envío.
+                          </span>
+                        )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        aria-label={`Quitar ${item.descripcion}`}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                        title="Quitar producto"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {/* Selector de cantidad + Botón quitar */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {!isNoDisponible ? (
+                          <div className="flex items-center border border-gray-300 rounded-lg bg-white overflow-hidden shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => updateCantidad(item.id, item.cantidad - 1)}
+                              disabled={item.cantidad <= 1}
+                              aria-label="Disminuir cantidad"
+                              className="px-2 py-1 text-gray-500 hover:bg-gray-100 disabled:opacity-40 disabled:hover:bg-transparent cursor-pointer"
+                            >
+                              <Minus className="w-3 h-3" />
+                            </button>
+                            <input
+                              type="number"
+                              min="1"
+                              max="9999"
+                              value={item.cantidad}
+                              onChange={(e) => updateCantidad(item.id, e.target.value)}
+                              className="w-11 text-center text-xs font-bold text-[var(--text)] py-1 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => updateCantidad(item.id, item.cantidad + 1)}
+                              aria-label="Aumentar cantidad"
+                              className="px-2 py-1 text-gray-500 hover:bg-gray-100 cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeItem(item.id)}
+                            className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 rounded-lg bg-white transition-colors cursor-pointer"
+                          >
+                            Quitar
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          aria-label={`Quitar ${item.descripcion}`}
+                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Quitar producto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ) : (
               /* Estado Vacío de la lista */
@@ -668,7 +798,7 @@ export default function CarritoDrawer() {
               type="button"
               id="btn-presupuesto-email"
               onClick={handleEnviarEmail}
-              disabled={isSubmitting || itemsList.length === 0 || rateLimitSeconds > 0}
+              disabled={isSubmitting || totalDisponibles === 0 || rateLimitSeconds > 0}
               className="btn-primary flex-1 !min-h-[42px] !py-2.5 !px-4 !rounded-xl !text-xs sm:!text-sm !font-bold justify-center shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
@@ -713,7 +843,7 @@ export default function CarritoDrawer() {
               type="button"
               id="btn-presupuesto-whatsapp"
               onClick={handleEnviarWhatsApp}
-              disabled={itemsList.length === 0}
+              disabled={totalDisponibles === 0}
               className="btn-whatsapp flex-1 !min-h-[42px] !py-2.5 !px-4 !rounded-xl !text-xs sm:!text-sm !font-bold justify-center shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <MessageCircle className="w-4 h-4 shrink-0" />

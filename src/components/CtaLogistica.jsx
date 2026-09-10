@@ -353,10 +353,7 @@ export default function CtaLogistica() {
               }`}
               style={{ transitionDelay: '450ms' }}
             >
-              Invitamos a <strong>productores y fabricantes</strong> a canalizar su distribución
-              regional a través de la infraestructura logística y flota propia de{' '}
-              <strong className="text-white">Depósito Bombal</strong>. Potenciá el alcance de tus
-              productos en Mendoza y la región con un socio logístico de confianza.
+              Atención comercial. Atención de pedidos mayoristas, minorista con entrega coordinada en Mendoza.
             </p>
 
             {/* 3 Pilares destacados - Escalonado 4 */}
